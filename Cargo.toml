@@ -12,6 +12,7 @@ repository = "https://github.com/zkp2p/zkp2p-solana-contracts"
 anchor-lang = { version = "=1.1.2", features = ["init-if-needed"] }
 anchor-spl = { version = "=1.1.2", default-features = false, features = ["associated_token", "token", "token_2022"] }
 litesvm = "=0.10.0"
+k256 = { version = "=0.13.4", features = ["ecdsa"] }
 proptest = { version = "=1.11.0", default-features = false, features = ["std"] }
 solana-account = "=3.2.0"
 solana-address = "=2.7.0"

@@ -998,6 +998,9 @@ mod tests {
     #[test]
     fn lock_rejects_range_liquidity_and_cap_boundaries() {
         let mut state = deposit();
+        state.accepting_intents = false;
+        assert!(state.lock(10, 4).is_err());
+        state.accepting_intents = true;
         assert!(state.lock(9, 4).is_err());
         assert!(state.lock(101, 4).is_err());
         state.intent_amount_range.max = 1_000;
@@ -1022,6 +1025,8 @@ mod tests {
         assert_eq!(position.locked, 0);
         assert_eq!(position.free(), Some(65));
         assert_eq!(position.balance.checked_add(35), Some(100));
+        assert!(position.lock(66).is_err());
+        assert!(position.resolve(1, 2).is_err());
     }
 
     fn pending_dispute() -> DisputeIntent {
@@ -1054,6 +1059,7 @@ mod tests {
         disputed.settle(25, 1_000).expect("settle");
         assert_eq!(disputed.dispute(), Ok(25));
         assert!(disputed.release(2_000).is_err());
+        assert!(disputed.settle(1, 2_000).is_err());
     }
 
     #[test]
@@ -1097,6 +1103,19 @@ mod tests {
         quote.updated_at = 1_001;
         assert_eq!(currency.escrow_floor(Some(&quote), 1_000), Ok(0));
         assert!(currency.escrow_floor(None, 1_000).is_err());
+
+        let mut fixed = currency;
+        fixed.oracle_quote = None;
+        assert_eq!(fixed.escrow_floor(None, 1_000), Ok(100));
+        fixed.listed = false;
+        assert_eq!(fixed.escrow_floor(None, 1_000), Ok(0));
+    }
+
+    #[test]
+    fn settlement_rejects_release_above_lock() {
+        let mut state = deposit();
+        state.lock(50, 1).expect("lock");
+        assert!(state.settle(50, 51).is_err());
     }
 
     proptest! {

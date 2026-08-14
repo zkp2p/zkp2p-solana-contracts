@@ -46,7 +46,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 The `parity_svm` integration suite loads the real SBF artifact into LiteSVM. Run `anchor build` first when the program binary
-is absent or stale. Property tests exercise escrow, stake, dispute, fee, and rate invariants without external services.
+is absent or stale. The real-SBF suites execute all 60 public instructions; property tests exercise escrow, stake, dispute,
+fee, and rate invariants without external services. See [docs/TESTING.md](docs/TESTING.md) for the coverage denominator and
+instruction-to-suite matrix.
 
 ## Deliberate SVM differences
 

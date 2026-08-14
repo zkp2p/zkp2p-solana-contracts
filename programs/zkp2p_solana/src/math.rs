@@ -64,6 +64,15 @@ mod tests {
         assert!(spread_rate_ceil(1, -10_000).is_err());
     }
 
+    #[test]
+    fn arithmetic_overflow_paths_reject() {
+        assert!(precise_mul_floor(u64::MAX, u128::MAX).is_err());
+        assert!(
+            precise_mul_floor(u64::MAX, crate::constants::PRECISE_UNIT.saturating_mul(2)).is_err()
+        );
+        assert!(spread_rate_ceil(u128::MAX, 1).is_err());
+    }
+
     proptest! {
         #[test]
         fn fee_math_matches_integer_floor(
