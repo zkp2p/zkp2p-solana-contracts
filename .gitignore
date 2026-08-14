@@ -1,0 +1,11 @@
+.anchor/
+.surfpool/
+target/
+test-ledger/
+coverage/
+*.profraw
+*.profdata
+.env
+.DS_Store
+node_modules/
+**/*.rs.bk
