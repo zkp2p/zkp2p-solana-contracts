@@ -5,7 +5,11 @@ use solana_keccak_hasher as keccak;
 use solana_secp256k1_recover::secp256k1_recover;
 
 use crate::{
-    constants::{MAX_TIMESTAMP_BUFFER_MS, PROTOCOL_SEED, VERIFIER_CONFIG_SEED},
+    constants::{
+        EIP712_DOMAIN_TYPEHASH, EIP712_VERSION_ONE_HASH, MAX_TIMESTAMP_BUFFER_MS,
+        PAYMENT_ATTESTATION_TYPEHASH, PAYMENT_VERIFIER_NAME_HASH, PROTOCOL_SEED,
+        VERIFIER_CONFIG_SEED,
+    },
     error::Zkp2pError,
     state::{Intent, ProtocolConfig, VerifierConfig},
 };
@@ -343,12 +347,6 @@ pub fn payment_attestation_digest(
     release_amount: u64,
     data_hash: [u8; 32],
 ) -> [u8; 32] {
-    let domain_typehash = keccak::hash(
-        b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)",
-    )
-    .to_bytes();
-    let name_hash = keccak::hash(b"UnifiedPaymentVerifier").to_bytes();
-    let version_hash = keccak::hash(b"1").to_bytes();
     let verifier_hash = keccak::hash(verifier_key.as_ref()).to_bytes();
     let mut address_word = [0_u8; 32];
     if let (Some(destination), Some(source)) = (address_word.get_mut(12..), verifier_hash.get(12..))
@@ -357,30 +355,54 @@ pub fn payment_attestation_digest(
     }
     let chain_id = [0_u8; 32];
     let domain_separator = keccak::hashv(&[
-        &domain_typehash,
-        &name_hash,
-        &version_hash,
+        &EIP712_DOMAIN_TYPEHASH,
+        &PAYMENT_VERIFIER_NAME_HASH,
+        &EIP712_VERSION_ONE_HASH,
         &chain_id,
         &address_word,
     ])
     .to_bytes();
 
-    let typehash = keccak::hash(
-        b"PaymentAttestation(bytes32 intentHash,uint256 releaseAmount,bytes32 dataHash)",
-    )
-    .to_bytes();
     let mut release_word = [0_u8; 32];
     if let Some(destination) = release_word.get_mut(24..) {
         destination.copy_from_slice(&release_amount.to_be_bytes());
     }
-    let struct_hash =
-        keccak::hashv(&[&typehash, &intent_hash, &release_word, &data_hash]).to_bytes();
+    let struct_hash = keccak::hashv(&[
+        &PAYMENT_ATTESTATION_TYPEHASH,
+        &intent_hash,
+        &release_word,
+        &data_hash,
+    ])
+    .to_bytes();
     keccak::hashv(&[&[0x19, 0x01], &domain_separator, &struct_hash]).to_bytes()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prehashed_eip712_constants_match_canonical_strings() {
+        assert_eq!(
+            EIP712_DOMAIN_TYPEHASH,
+            keccak::hash(
+                b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+            )
+            .to_bytes()
+        );
+        assert_eq!(
+            PAYMENT_VERIFIER_NAME_HASH,
+            keccak::hash(b"UnifiedPaymentVerifier").to_bytes()
+        );
+        assert_eq!(EIP712_VERSION_ONE_HASH, keccak::hash(b"1").to_bytes());
+        assert_eq!(
+            PAYMENT_ATTESTATION_TYPEHASH,
+            keccak::hash(
+                b"PaymentAttestation(bytes32 intentHash,uint256 releaseAmount,bytes32 dataHash)"
+            )
+            .to_bytes()
+        );
+    }
 
     #[test]
     fn rejects_high_s_boundary() {

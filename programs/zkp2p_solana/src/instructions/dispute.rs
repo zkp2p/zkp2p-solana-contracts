@@ -4,11 +4,13 @@ use anchor_lang::prelude::*;
 
 use crate::{
     constants::{
-        CLAIM_BALANCE_SEED, DEPOSIT_DISPUTE_SETTING_SEED, DISPUTE_CONFIG_SEED, DISPUTE_INTENT_SEED,
-        DISPUTE_NULLIFIER_SEED, INTENT_PAYMENT_BINDING_SEED, MAX_RISK_WINDOW_SECONDS,
-        NEVER_MATURES, ORCHESTRATOR_CONFIG_SEED, PAYMENT_BINDING_SEED, PROTOCOL_SEED,
-        RISK_WINDOW_SEED, STAKE_LOCK_SEED, STAKE_POSITION_SEED, STAKE_SELECTION_SEED,
-        STAKE_VAULT_CONFIG_SEED, VERIFIER_CONFIG_SEED,
+        CLAIM_BALANCE_SEED, DEPOSIT_DISPUTE_SETTING_SEED, DISPUTE_ATTESTATION_TYPEHASH,
+        DISPUTE_CONFIG_SEED, DISPUTE_INTENT_SEED, DISPUTE_NULLIFIER_SEED,
+        DISPUTE_VERIFIER_NAME_HASH, EIP712_DOMAIN_TYPEHASH, EIP712_VERSION_ONE_HASH,
+        INTENT_PAYMENT_BINDING_SEED, MAX_RISK_WINDOW_SECONDS, NEVER_MATURES,
+        ORCHESTRATOR_CONFIG_SEED, PAYMENT_BINDING_SEED, PROTOCOL_SEED, RISK_WINDOW_SEED,
+        STAKE_LOCK_SEED, STAKE_POSITION_SEED, STAKE_SELECTION_SEED, STAKE_VAULT_CONFIG_SEED,
+        VERIFIER_CONFIG_SEED,
     },
     error::Zkp2pError,
     instructions::{derive_intent_hash, verify_witness_threshold},
@@ -593,32 +595,37 @@ pub fn dispute_attestation_digest(
     intent_hash: [u8; 32],
     data_hash: [u8; 32],
 ) -> [u8; 32] {
-    let domain_typehash = keccak::hash(
-        b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)",
-    )
-    .to_bytes();
-    let name_hash = keccak::hash(b"ZKP2P DisputeVerifier").to_bytes();
-    let version_hash = keccak::hash(b"1").to_bytes();
     let account_hash = keccak::hash(dispute_config.as_ref()).to_bytes();
     let mut address_word = [0_u8; 32];
     address_word[12..].copy_from_slice(&account_hash[12..]);
     let domain_separator = keccak::hashv(&[
-        &domain_typehash,
-        &name_hash,
-        &version_hash,
+        &EIP712_DOMAIN_TYPEHASH,
+        &DISPUTE_VERIFIER_NAME_HASH,
+        &EIP712_VERSION_ONE_HASH,
         &[0_u8; 32],
         &address_word,
     ])
     .to_bytes();
-    let typehash =
-        keccak::hash(b"DisputeAttestation(bytes32 intentHash,bytes32 dataHash)").to_bytes();
-    let struct_hash = keccak::hashv(&[&typehash, &intent_hash, &data_hash]).to_bytes();
+    let struct_hash =
+        keccak::hashv(&[&DISPUTE_ATTESTATION_TYPEHASH, &intent_hash, &data_hash]).to_bytes();
     keccak::hashv(&[&[0x19, 0x01], &domain_separator, &struct_hash]).to_bytes()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prehashed_eip712_constants_match_canonical_strings() {
+        assert_eq!(
+            DISPUTE_VERIFIER_NAME_HASH,
+            keccak::hash(b"ZKP2P DisputeVerifier").to_bytes()
+        );
+        assert_eq!(
+            DISPUTE_ATTESTATION_TYPEHASH,
+            keccak::hash(b"DisputeAttestation(bytes32 intentHash,bytes32 dataHash)").to_bytes()
+        );
+    }
 
     #[test]
     fn dispute_digest_is_bound_to_domain_intent_and_payload() {

@@ -4,6 +4,17 @@ All notable changes are recorded here. Optimization entries must include before/
 
 ## Unreleased
 
+### SVM optimization 002: prehashed EIP-712 constants
+
+- Replace six runtime Keccak operations over immutable EIP-712 names and schemas with audited byte constants.
+- Assert every constant against its canonical UTF-8 source in unit tests, while retaining the existing digest-domain and
+  real-signature SVM tests.
+- Reduce the SBF artifact from 1,681,128 to 1,680,296 bytes (832 bytes, 0.049%). On the deterministic LiteSVM fixture,
+  threshold fulfillment falls from 126,324 to 125,844 CU (480 CU, 0.380%) and dispute submission falls from 64,526 to
+  64,059 CU (467 CU, 0.724%). Repeated runs are identical.
+- Detailed evidence is in
+  [`docs/optimizations/002-prehashed-eip712-constants.md`](docs/optimizations/002-prehashed-eip712-constants.md).
+
 ### SVM optimization 001: fixed-width attestation hashing
 
 - Hash payment and dispute payloads directly from their fixed-width fields instead of allocating and serializing a
