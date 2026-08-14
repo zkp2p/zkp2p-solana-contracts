@@ -40,3 +40,16 @@ cargo llvm-cov --lib --lcov --output-path target/coverage/core.lcov
 The test helpers construct real SPL Token accounts and submit signed Solana transactions. Threshold verifier tests derive
 an Ethereum address from a deterministic test-only secp256k1 key, sign the exact EIP-712 digest, and exercise both payment
 and dispute nullifier bindings. No deployment credential or production witness key is used in tests.
+
+## Fuzz and invariant suites
+
+`cargo test --test fuzz_invariants` runs 512 generated cases for each stateful property. Every case contains up to 191
+operations and checks invariants after each reachable transition:
+
+| Property | Generated state | Invariants |
+| --- | --- | --- |
+| Escrow lifecycle | Eight concurrent lock slots; lock, cancel, and partial settlement | live-slot sum equals outstanding principal; live-slot count equals active intents; available + outstanding + cumulative releases equals initial custody |
+| StakeVault liabilities | Two owners, eight independent slots each; lock, increase, resize, resolve, and arbitrary claim split | each owner's slot sum equals locked stake; locked never exceeds principal; free stake is exact; owner principal + claims and global liabilities remain conserved |
+
+These tests are adapted from the latest Foundry fuzz and `StakeVaultInvariant` handlers. They are supplemental and do not
+contribute to the deterministic coverage floor.

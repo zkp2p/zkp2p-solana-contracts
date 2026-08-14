@@ -4,6 +4,14 @@ All notable changes are recorded here. Optimization entries must include before/
 
 ## Unreleased
 
+### Fuzz and invariant coverage
+
+- Add 512-case, stateful operation-sequence properties adapted from the latest Foundry StakeVault and escrow invariants.
+- Exercise two stake owners and eight independent lock slots per owner across lock, increase, resize, resolve, and claim
+  allocations, checking per-owner and global liability conservation after every operation.
+- Exercise eight concurrent escrow locks across signal, cancel, and partial-settlement outcomes, checking live principal,
+  active-lock counts, and cumulative released-value conservation after every operation.
+
 ### SVM optimization 002: prehashed EIP-712 constants
 
 - Replace six runtime Keccak operations over immutable EIP-712 names and schemas with audited byte constants.
