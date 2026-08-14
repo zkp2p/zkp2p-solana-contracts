@@ -4,6 +4,18 @@ All notable changes are recorded here. Optimization entries must include before/
 
 ## Unreleased
 
+### SVM optimization 001: fixed-width attestation hashing
+
+- Hash payment and dispute payloads directly from their fixed-width fields instead of allocating and serializing a
+  temporary `Vec<u8>`.
+- Preserve the canonical Borsh byte stream exactly; differential unit tests compare both implementations byte-for-byte at
+  their hash boundary.
+- Reduce the SBF artifact from 1,684,696 to 1,681,128 bytes (3,568 bytes, 0.212%). On a deterministic LiteSVM fixture,
+  threshold fulfillment falls from 127,304 to 126,324 CU (980 CU, 0.770%) and dispute submission falls from 65,271 to
+  64,526 CU (745 CU, 1.141%). Repeated runs produce identical measurements.
+- Keep the full 60/60 instruction parity suite and executable source-line coverage gate unchanged. Detailed evidence is in
+  [`docs/optimizations/001-fixed-width-attestation-hashing.md`](docs/optimizations/001-fixed-width-attestation-hashing.md).
+
 ### Parity baseline
 
 - Port the latest OrchestratorV3, EscrowV2, StakeVault, RateManagerV1, unified payment/dispute verifier, immutable nullifier,

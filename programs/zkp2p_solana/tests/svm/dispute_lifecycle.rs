@@ -1,6 +1,8 @@
 //! Real-SBF dispute admission, cancellation, covered settlement, and maturity release.
 
-use super::common::{address, anchor_pubkey, install_token_account, pda, token_amount, Fixture};
+use super::common::{
+    address, anchor_pubkey, install_token_account, pda, send_with_compute, token_amount, Fixture,
+};
 use anchor_lang::{AccountDeserialize, AnchorSerialize};
 use k256::ecdsa::SigningKey;
 use solana_address::Address;
@@ -559,10 +561,14 @@ fn threshold_payment_fulfillment_binds_nullifiers_and_resolves_dispute_claim() {
             },
         },
     );
-    covered
-        .fixture
-        .send(&[fulfill])
-        .expect("fulfill threshold payment");
+    let fulfill_compute = send_with_compute(
+        &mut covered.fixture.svm,
+        &covered.fixture.authority,
+        &[],
+        &[fulfill],
+    )
+    .expect("fulfill threshold payment");
+    eprintln!("fulfill_compute_units={fulfill_compute}");
     assert_eq!(token_amount(&covered.fixture.svm, recipient_token), 99);
 
     let details = DisputeDetails {
@@ -622,10 +628,14 @@ fn threshold_payment_fulfillment_binds_nullifiers_and_resolves_dispute_claim() {
             },
         },
     );
-    covered
-        .fixture
-        .send(&[submit])
-        .expect("resolve signed dispute");
+    let dispute_compute = send_with_compute(
+        &mut covered.fixture.svm,
+        &covered.fixture.authority,
+        &[],
+        &[submit],
+    )
+    .expect("resolve signed dispute");
+    eprintln!("submit_dispute_compute_units={dispute_compute}");
     let claim_state: ClaimBalance = decode(&covered.fixture, claim);
     assert_eq!(claim_state.amount, 100);
 }

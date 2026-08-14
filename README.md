@@ -62,6 +62,9 @@ instruction-to-suite matrix.
 - Borsh replaces ABI encoding for signed data payload commitments, while the outer EIP-712 schemas remain stable.
 
 See [CHANGELOG.md](CHANGELOG.md) for behavioral changes and optimization evidence.
+Each optimization is isolated in its own commit and has a reproducible before/after report under
+[`docs/optimizations/`](docs/optimizations/). An optimization is retained only when the state-machine suite and canonical
+serialization checks remain unchanged.
 
 ## Security status
 

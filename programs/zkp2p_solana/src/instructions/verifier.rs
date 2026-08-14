@@ -201,17 +201,8 @@ pub fn verify_payment_attestation(
     );
     validate_snapshot(intent, &attestation.snapshot)?;
 
-    let mut payload = Vec::new();
-    attestation
-        .payment
-        .serialize(&mut payload)
-        .map_err(|_| error!(Zkp2pError::DataHashMismatch))?;
-    attestation
-        .snapshot
-        .serialize(&mut payload)
-        .map_err(|_| error!(Zkp2pError::DataHashMismatch))?;
     require!(
-        keccak::hash(&payload).to_bytes() == attestation.data_hash,
+        payment_data_hash(&attestation.payment, &attestation.snapshot) == attestation.data_hash,
         Zkp2pError::DataHashMismatch
     );
     let digest = payment_attestation_digest(
@@ -222,6 +213,32 @@ pub fn verify_payment_attestation(
     );
     verify_witness_threshold(verifier, digest, &attestation.signatures)?;
     Ok(keccak::hashv(&[&attestation.payment.method, &attestation.payment.payment_id]).to_bytes())
+}
+
+fn payment_data_hash(payment: &PaymentDetails, snapshot: &IntentSnapshot) -> [u8; 32] {
+    let payment_amount = payment.amount.to_le_bytes();
+    let payment_timestamp = payment.timestamp_ms.to_le_bytes();
+    let snapshot_amount = snapshot.amount.to_le_bytes();
+    let conversion_rate = snapshot.conversion_rate.to_le_bytes();
+    let signal_timestamp = snapshot.signal_timestamp.to_le_bytes();
+    let timestamp_buffer = snapshot.timestamp_buffer_ms.to_le_bytes();
+    keccak::hashv(&[
+        &payment.method,
+        &payment.payee_id,
+        &payment_amount,
+        &payment.currency,
+        &payment_timestamp,
+        &payment.payment_id,
+        &snapshot.intent_hash,
+        &snapshot_amount,
+        &snapshot.payment_method,
+        &snapshot.fiat_currency,
+        &snapshot.payee_details,
+        &conversion_rate,
+        &signal_timestamp,
+        &timestamp_buffer,
+    ])
+    .to_bytes()
 }
 
 fn validate_snapshot(intent: &Intent, snapshot: &IntentSnapshot) -> Result<()> {
@@ -379,5 +396,38 @@ mod tests {
         let first = payment_attestation_digest(Pubkey::new_unique(), [1; 32], 7, [2; 32]);
         let second = payment_attestation_digest(Pubkey::new_unique(), [1; 32], 7, [2; 32]);
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn fixed_width_hash_matches_canonical_borsh_payload() {
+        let payment = PaymentDetails {
+            method: [1; 32],
+            payee_id: [2; 32],
+            amount: u128::MAX,
+            currency: [3; 32],
+            timestamp_ms: u64::MAX,
+            payment_id: [4; 32],
+        };
+        let snapshot = IntentSnapshot {
+            intent_hash: [5; 32],
+            amount: u64::MAX,
+            payment_method: [6; 32],
+            fiat_currency: [7; 32],
+            payee_details: [8; 32],
+            conversion_rate: u128::MAX,
+            signal_timestamp: i64::MIN,
+            timestamp_buffer_ms: u64::MAX,
+        };
+        let mut canonical = Vec::new();
+        payment
+            .serialize(&mut canonical)
+            .expect("serialize payment");
+        snapshot
+            .serialize(&mut canonical)
+            .expect("serialize snapshot");
+        assert_eq!(
+            payment_data_hash(&payment, &snapshot),
+            keccak::hash(&canonical).to_bytes()
+        );
     }
 }

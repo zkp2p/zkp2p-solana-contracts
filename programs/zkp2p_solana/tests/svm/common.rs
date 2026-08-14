@@ -88,6 +88,15 @@ pub fn send(
     additional_signers: &[&Keypair],
     instructions: &[Instruction],
 ) -> Result<(), String> {
+    send_with_compute(svm, payer, additional_signers, instructions).map(|_| ())
+}
+
+pub fn send_with_compute(
+    svm: &mut LiteSVM,
+    payer: &Keypair,
+    additional_signers: &[&Keypair],
+    instructions: &[Instruction],
+) -> Result<u64, String> {
     let blockhash = svm.latest_blockhash();
     let message = Message::new_with_blockhash(instructions, Some(&payer.pubkey()), &blockhash);
     let mut signers = Vec::with_capacity(
@@ -99,7 +108,7 @@ pub fn send(
     signers.push(payer);
     signers.extend_from_slice(additional_signers);
     svm.send_transaction(Transaction::new(&signers, message, blockhash))
-        .map(|_| ())
+        .map(|metadata| metadata.compute_units_consumed)
         .map_err(|error| format!("{error:?}"))
 }
 
@@ -122,7 +131,7 @@ impl Fixture {
         let mut svm = LiteSVM::new();
         svm.add_program_from_file(address(zkp2p_solana::ID.to_bytes()), program_binary())
             .expect("load SBF program");
-        let authority = Keypair::new();
+        let authority = Keypair::new_from_array([1_u8; 32]);
         svm.airdrop(&authority.pubkey(), 50_000_000_000)
             .expect("fund authority");
 

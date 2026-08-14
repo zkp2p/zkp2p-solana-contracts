@@ -496,12 +496,8 @@ pub fn handle_submit_dispute(ctx: Context<SubmitDispute>, args: SubmitDisputeArg
     require!(details.payment_amount > 0, Zkp2pError::ZeroValue);
     require!(details.payment_currency != [0; 32], Zkp2pError::ZeroValue);
 
-    let mut encoded = Vec::new();
-    details
-        .serialize(&mut encoded)
-        .map_err(|_| error!(Zkp2pError::DataHashMismatch))?;
     require!(
-        keccak::hash(&encoded).to_bytes() == attestation.data_hash,
+        dispute_data_hash(details) == attestation.data_hash,
         Zkp2pError::DataHashMismatch
     );
     let payment_nullifier =
@@ -579,6 +575,18 @@ pub fn handle_submit_dispute(ctx: Context<SubmitDispute>, args: SubmitDisputeArg
     Ok(())
 }
 
+fn dispute_data_hash(details: &DisputeDetails) -> [u8; 32] {
+    let payment_amount = details.payment_amount.to_le_bytes();
+    keccak::hashv(&[
+        &details.payment_method,
+        &details.original_payment_id,
+        &details.dispute_id,
+        &payment_amount,
+        &details.payment_currency,
+    ])
+    .to_bytes()
+}
+
 /// Returns the EIP-712 digest for Solana dispute verifier evidence.
 pub fn dispute_attestation_digest(
     dispute_config: Pubkey,
@@ -627,6 +635,25 @@ mod tests {
         assert_ne!(
             baseline,
             dispute_attestation_digest(config, [1; 32], [4; 32])
+        );
+    }
+
+    #[test]
+    fn fixed_width_hash_matches_canonical_borsh_payload() {
+        let details = DisputeDetails {
+            payment_method: [1; 32],
+            original_payment_id: [2; 32],
+            dispute_id: [3; 32],
+            payment_amount: u128::MAX,
+            payment_currency: [4; 32],
+        };
+        let mut canonical = Vec::new();
+        details
+            .serialize(&mut canonical)
+            .expect("serialize details");
+        assert_eq!(
+            dispute_data_hash(&details),
+            keccak::hash(&canonical).to_bytes()
         );
     }
 }
