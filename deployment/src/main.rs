@@ -5,6 +5,7 @@ use std::{
     error::Error,
     fmt::Write as _,
     fs::OpenOptions,
+    io::Write as _,
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     rc::Rc,
@@ -248,7 +249,7 @@ fn run_preflight(args: RpcArgs) -> Result<(), Box<dyn Error>> {
     };
     let output = serde_json::to_string_pretty(&receipt)?;
     if let Some(path) = args.receipt {
-        std::fs::write(path, output.as_bytes())?;
+        write_receipt_exclusive(&path, output.as_bytes())?;
     }
     println!("{output}");
     Ok(())
@@ -507,7 +508,7 @@ fn run_rpc(args: RpcArgs, apply: bool) -> Result<(), Box<dyn Error>> {
     };
     let output = serde_json::to_string_pretty(&receipt)?;
     if let Some(path) = args.receipt {
-        std::fs::write(path, output.as_bytes())?;
+        write_receipt_exclusive(&path, output.as_bytes())?;
     }
     println!("{output}");
     Ok(())
@@ -647,6 +648,17 @@ fn write_keypair_exclusive(keypair: &Keypair, output: &Path) -> Result<(), Box<d
     Ok(())
 }
 
+fn write_receipt_exclusive(output: &Path, contents: &[u8]) -> Result<(), Box<dyn Error>> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o644)
+        .open(output)?;
+    file.write_all(contents)?;
+    file.sync_all()?;
+    Ok(())
+}
+
 fn websocket_url(rpc_url: &str) -> Result<String, Box<dyn Error>> {
     if let Some(rest) = rpc_url.strip_prefix("https://") {
         return Ok(format!("wss://{rest}"));
@@ -752,6 +764,25 @@ mod tests {
         assert_eq!(loaded.pubkey(), keypair.pubkey());
 
         std::fs::remove_file(path).expect("remove test keypair");
+    }
+
+    #[test]
+    fn receipts_are_never_overwritten() {
+        let path = env::temp_dir().join(format!(
+            "zkp2p-deployment-receipt-{}-{}.json",
+            std::process::id(),
+            Pubkey::new_unique()
+        ));
+        write_receipt_exclusive(&path, br#"{"status":"verified"}"#).expect("create receipt");
+        assert!(write_receipt_exclusive(&path, br#"{"status":"stale"}"#).is_err());
+        assert_eq!(
+            std::fs::read(&path).expect("read receipt"),
+            br#"{"status":"verified"}"#
+        );
+        let metadata = std::fs::metadata(&path).expect("receipt metadata");
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o644);
+
+        std::fs::remove_file(path).expect("remove test receipt");
     }
 
     #[test]
