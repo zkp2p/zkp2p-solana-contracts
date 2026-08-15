@@ -117,6 +117,8 @@ ZKP2P_STAKE_MINT="$(solana-keygen pubkey "$mint")"
 export ZKP2P_PROTOCOL_FEE_RECIPIENT="$authority"
 export ZKP2P_INITIAL_WITNESSES="00112233445566778899aabbccddeeff00112233"
 export ZKP2P_DEPLOYMENT_RECEIPT="$receipt"
+export ZKP2P_EXPECTED_PROGRAM_SHA256
+ZKP2P_EXPECTED_PROGRAM_SHA256="$(shasum -a 256 target/deploy/zkp2p_solana.so | awk '{print $1}')"
 
 expected_genesis_hash="$ZKP2P_EXPECTED_GENESIS_HASH"
 export ZKP2P_EXPECTED_GENESIS_HASH=11111111111111111111111111111111
@@ -184,6 +186,7 @@ assert len(receipt["domain_seed"]) == 64
 assert receipt["domain_seed_slot"] >= 0
 assert receipt["witness_count"] == 1
 assert receipt["required_signatures"] == 1
+assert len(receipt["program_sha256"]) == 64
 PY
 
 echo "local_deployment_test=passed program=5TJD8vLWqAy4hEZLnsxuFKCDnuKXkfQQWpdnqNKYoA1x"

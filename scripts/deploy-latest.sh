@@ -55,6 +55,18 @@ if [[ "$skip_build" != "true" ]]; then
   env -u SOLANA_PRIVATE_KEY anchor build --no-idl
 fi
 [[ -f "$program_binary" ]] || { echo "missing SBF artifact: $program_binary" >&2; exit 1; }
+program_sha256="$(shasum -a 256 "$program_binary" | awk '{print $1}')"
+if [[ "$skip_build" == "true" ]]; then
+  : "${ZKP2P_EXPECTED_PROGRAM_SHA256:?ZKP2P_EXPECTED_PROGRAM_SHA256 is required with --skip-build}"
+  [[ "$ZKP2P_EXPECTED_PROGRAM_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+    echo "expected program SHA-256 must be 64 lowercase hexadecimal characters" >&2
+    exit 1
+  }
+  [[ "$program_sha256" == "$ZKP2P_EXPECTED_PROGRAM_SHA256" ]] || {
+    echo "SBF artifact SHA-256 mismatch" >&2
+    exit 1
+  }
+fi
 
 if [[ -n "${SOLANA_KEYPAIR_PATH:-}" ]]; then
   wallet_keypair="$SOLANA_KEYPAIR_PATH"
@@ -186,6 +198,18 @@ cargo run --quiet --manifest-path deployment/Cargo.toml -- apply \
   --rpc-url "$SOLANA_RPC_URL" \
   --keypair "$wallet_keypair" \
   --receipt "$post_deployment_receipt"
+python3 - "$post_deployment_receipt" "$program_sha256" <<'PY'
+import json
+import sys
+
+path, program_sha256 = sys.argv[1:]
+with open(path, encoding="utf-8") as receipt_file:
+    receipt = json.load(receipt_file)
+receipt["program_sha256"] = program_sha256
+with open(path, "w", encoding="utf-8") as receipt_file:
+    json.dump(receipt, receipt_file, indent=2)
+    receipt_file.write("\n")
+PY
 
 if [[ "$is_upgrade" == "true" ]]; then
   post_deployment_configuration_fingerprint="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["configuration_fingerprint"])' "$post_deployment_receipt")"
