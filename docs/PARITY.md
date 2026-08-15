@@ -259,6 +259,8 @@ Lifecycle routing for a newly signaled intent:
   nonzero off-chain amount/currency, and every canonical intent snapshot field.
 - Timestamp buffer cannot exceed 48 hours. Timestamp units remain milliseconds in the signed payload.
 - The configured witness threshold must be met by unique authorized Ethereum addresses. Duplicate signer credit is rejected.
+- Solana witness sets are capped at two by the serialized transaction budget. Two-witness settlement must use a v0 message
+  and an address lookup table; the canonical real-SBF fixture asserts the signed transaction remains below 1,232 bytes.
 - Payment nullifier is `keccak256(payment_method || payment_id)` and becomes an immutable bidirectional binding to the intent.
 - Release is `min(attested_release, intent_amount)`.
 - Dispute attestation digest preserves the Solidity EIP-712 schema. It must match payment method and the original payment's

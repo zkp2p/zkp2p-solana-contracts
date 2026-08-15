@@ -1,6 +1,8 @@
 //! Real-SBF EscrowV2 custody and deposit-policy transitions.
 
-use super::common::{address, anchor_pubkey, install_token_account, pda, token_amount, Fixture};
+use super::common::{
+    address, anchor_pubkey, install_token_account, pda, set_token_amount, token_amount, Fixture,
+};
 use anchor_lang::AccountDeserialize;
 use solana_address::Address;
 use solana_signer::Signer;
@@ -10,8 +12,8 @@ use zkp2p_solana::{
         DEPOSIT_VAULT_SEED, DEPOSIT_WHITELIST_MEMBER_SEED, DEPOSIT_WHITELIST_SEED,
         PAYMENT_METHOD_SEED, RATE_MANAGER_SEED,
     },
-    AmountRange, ConfigureCurrencyArgs, ConfigurePaymentMethodArgs, CreateDepositArgs,
-    CreateRateManagerArgs, Deposit, DepositDisputeSetting, DepositWhitelist,
+    AmountRange, ConfigureCurrencyArgs, ConfigureEscrowArgs, ConfigurePaymentMethodArgs,
+    CreateDepositArgs, CreateRateManagerArgs, Deposit, DepositDisputeSetting, DepositWhitelist,
     DepositWhitelistMember, UpdateDepositArgs,
 };
 
@@ -29,12 +31,20 @@ fn deposit_custody_configuration_whitelist_and_dispute_setting_round_trip() {
     let mut fixture = Fixture::new();
     let depositor = anchor_pubkey(fixture.authority.pubkey());
     let depositor_token = anchor_pubkey(Address::new_unique());
+    let dust_recipient_token = anchor_pubkey(Address::new_unique());
     install_token_account(
         &mut fixture.svm,
         depositor_token,
         fixture.mint,
         depositor,
         1_000,
+    );
+    install_token_account(
+        &mut fixture.svm,
+        dust_recipient_token,
+        fixture.mint,
+        depositor,
+        0,
     );
 
     let deposit = pda(&[DEPOSIT_SEED, fixture.escrow.as_ref(), &0_u64.to_le_bytes()]);
@@ -328,18 +338,173 @@ fn deposit_custody_configuration_whitelist_and_dispute_setting_round_trip() {
         .send(&[clear_manager])
         .expect("clear delegated manager");
 
+    let allow_terminal_close = fixture.program_instruction(
+        zkp2p_solana::accounts::UpdateDeposit {
+            authority: depositor,
+            escrow_config: fixture.escrow,
+            deposit,
+        },
+        zkp2p_solana::instruction::UpdateDeposit {
+            args: UpdateDepositArgs {
+                delegate: None,
+                intent_guardian: None,
+                intent_amount_range: None,
+                accepting_intents: None,
+                retain_on_empty: Some(false),
+            },
+        },
+    );
+    let configure_dust_and_pause = fixture.program_instruction(
+        zkp2p_solana::accounts::ConfigureEscrow {
+            authority: depositor,
+            protocol: fixture.protocol,
+            escrow: fixture.escrow,
+        },
+        zkp2p_solana::instruction::ConfigureEscrow {
+            args: ConfigureEscrowArgs {
+                dust_recipient: Some(depositor),
+                dust_threshold: Some(1),
+                max_intents_per_deposit: None,
+                intent_expiration_period: None,
+                paused: Some(true),
+            },
+        },
+    );
+    fixture
+        .send(&[allow_terminal_close, configure_dust_and_pause])
+        .expect("prepare paused dust exit");
+    set_token_amount(&mut fixture.svm, deposit_vault, 551);
+
     let withdraw = fixture.program_instruction(
         zkp2p_solana::accounts::WithdrawDeposit {
             depositor,
+            escrow_config: fixture.escrow,
             deposit,
             token_mint: fixture.mint,
             deposit_vault,
             depositor_token,
             token_program: anchor_spl::token::ID,
+            dust_recipient_token: Some(dust_recipient_token),
         },
         zkp2p_solana::instruction::WithdrawDeposit {},
     );
     fixture.send(&[withdraw]).expect("withdraw deposit");
-    assert_eq!(token_amount(&fixture.svm, deposit_vault), 0);
     assert_eq!(token_amount(&fixture.svm, depositor_token), 1_000);
+    assert_eq!(token_amount(&fixture.svm, dust_recipient_token), 1);
+    assert!(fixture
+        .svm
+        .get_account(&address(deposit.to_bytes()))
+        .is_none());
+    assert!(fixture
+        .svm
+        .get_account(&address(deposit_vault.to_bytes()))
+        .is_none());
+}
+
+#[test]
+fn above_threshold_dust_never_blocks_paused_principal_exit() {
+    let mut fixture = Fixture::new();
+    let depositor = anchor_pubkey(fixture.authority.pubkey());
+    let depositor_token = anchor_pubkey(Address::new_unique());
+    let dust_recipient_token = anchor_pubkey(Address::new_unique());
+    install_token_account(
+        &mut fixture.svm,
+        depositor_token,
+        fixture.mint,
+        depositor,
+        1_000,
+    );
+    install_token_account(
+        &mut fixture.svm,
+        dust_recipient_token,
+        fixture.mint,
+        depositor,
+        0,
+    );
+
+    let deposit = pda(&[DEPOSIT_SEED, fixture.escrow.as_ref(), &0_u64.to_le_bytes()]);
+    let payment_method_id = [81_u8; 32];
+    let currency_id = [82_u8; 32];
+    let payment_method = pda(&[PAYMENT_METHOD_SEED, deposit.as_ref(), &payment_method_id]);
+    let currency = pda(&[
+        DEPOSIT_CURRENCY_SEED,
+        deposit.as_ref(),
+        &payment_method_id,
+        &currency_id,
+    ]);
+    let deposit_vault = pda(&[DEPOSIT_VAULT_SEED, deposit.as_ref()]);
+    let create = fixture.program_instruction(
+        zkp2p_solana::accounts::CreateDeposit {
+            depositor,
+            escrow_config: fixture.escrow,
+            deposit,
+            payment_method,
+            currency,
+            mint: fixture.mint,
+            depositor_token,
+            deposit_vault,
+            token_program: anchor_spl::token::ID,
+            system_program: anchor_lang::system_program::ID,
+        },
+        zkp2p_solana::instruction::CreateDeposit {
+            args: CreateDepositArgs {
+                amount: 100,
+                intent_amount_range: AmountRange { min: 10, max: 100 },
+                delegate: None,
+                intent_guardian: None,
+                retain_on_empty: false,
+                payment_method: payment_method_id,
+                payee_details: [83_u8; 32],
+                gating_service: None,
+                currency: currency_id,
+                fixed_min_rate: 1_000_000_000_000_000_000,
+                oracle_quote: None,
+                spread_bps: 0,
+                max_staleness: 0,
+            },
+        },
+    );
+    fixture.send(&[create]).expect("create dust target");
+    let pause = fixture.program_instruction(
+        zkp2p_solana::accounts::ConfigureEscrow {
+            authority: depositor,
+            protocol: fixture.protocol,
+            escrow: fixture.escrow,
+        },
+        zkp2p_solana::instruction::ConfigureEscrow {
+            args: ConfigureEscrowArgs {
+                dust_recipient: None,
+                dust_threshold: Some(0),
+                max_intents_per_deposit: None,
+                intent_expiration_period: None,
+                paused: Some(true),
+            },
+        },
+    );
+    fixture.send(&[pause]).expect("pause admissions");
+
+    // Model an unsolicited canonical-token transfer that is not part of program accounting.
+    set_token_amount(&mut fixture.svm, deposit_vault, 101);
+    let withdraw = fixture.program_instruction(
+        zkp2p_solana::accounts::WithdrawDeposit {
+            depositor,
+            escrow_config: fixture.escrow,
+            deposit,
+            token_mint: fixture.mint,
+            deposit_vault,
+            depositor_token,
+            token_program: anchor_spl::token::ID,
+            dust_recipient_token: None,
+        },
+        zkp2p_solana::instruction::WithdrawDeposit {},
+    );
+    fixture.send(&[withdraw]).expect("paused principal exit");
+
+    assert_eq!(token_amount(&fixture.svm, depositor_token), 1_000);
+    assert_eq!(token_amount(&fixture.svm, deposit_vault), 1);
+    assert_eq!(token_amount(&fixture.svm, dust_recipient_token), 0);
+    let deposit_state: Deposit = decode(&fixture, deposit);
+    assert_eq!(deposit_state.remaining_deposits, 0);
+    assert!(deposit_state.retain_on_empty);
+    assert!(!deposit_state.accepting_intents);
 }

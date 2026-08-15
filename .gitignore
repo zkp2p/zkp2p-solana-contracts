@@ -3,6 +3,7 @@
 target/
 test-ledger/
 coverage/
+dist/
 *.profraw
 *.profdata
 .env

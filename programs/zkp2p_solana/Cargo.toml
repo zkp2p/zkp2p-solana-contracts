@@ -29,6 +29,7 @@ solana-program.workspace = true
 solana-secp256k1-recover.workspace = true
 
 [dev-dependencies]
+bincode.workspace = true
 k256.workspace = true
 litesvm.workspace = true
 proptest.workspace = true
@@ -36,6 +37,7 @@ solana-account.workspace = true
 solana-address.workspace = true
 solana-instruction.workspace = true
 solana-keypair.workspace = true
+solana-loader-v3-interface.workspace = true
 solana-message.workspace = true
 solana-signer.workspace = true
 solana-sdk-ids.workspace = true

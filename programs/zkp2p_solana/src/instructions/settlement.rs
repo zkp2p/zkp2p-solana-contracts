@@ -75,8 +75,9 @@ pub struct FulfillIntent<'info> {
     #[account(mut)]
     pub caller: Signer<'info>,
     /// Original intent owner receives closed-account rent.
+    /// CHECK: The address is bound to the snapshotted owner; any account may receive lamports.
     #[account(mut, address = intent.owner)]
-    pub owner_rent: SystemAccount<'info>,
+    pub owner_rent: UncheckedAccount<'info>,
     /// Canonical orchestrator configuration.
     #[account(
         seeds = [ORCHESTRATOR_CONFIG_SEED],
@@ -209,8 +210,9 @@ pub struct ManualRelease<'info> {
     #[account(address = deposit.depositor)]
     pub depositor: Signer<'info>,
     /// Original taker receives closed-account rent.
+    /// CHECK: The address is bound to the snapshotted owner; any account may receive lamports.
     #[account(mut, address = intent.owner)]
-    pub owner_rent: SystemAccount<'info>,
+    pub owner_rent: UncheckedAccount<'info>,
     /// Canonical orchestrator configuration.
     #[account(seeds = [ORCHESTRATOR_CONFIG_SEED], bump = orchestrator.bump)]
     pub orchestrator: Box<Account<'info, OrchestratorConfig>>,

@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
+import argparse
 import json
-import sys
 from pathlib import Path
 
 
@@ -105,12 +105,27 @@ def check_lcov(path: Path) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("lcov", nargs="?")
+    parser.add_argument("--idl-only", action="store_true")
+    parser.add_argument("--coverage-only", action="store_true")
+    args = parser.parse_args()
+    if args.idl_only and args.coverage_only:
+        parser.error("--idl-only and --coverage-only are mutually exclusive")
+
     root = Path(__file__).resolve().parents[1]
     idl_path = root / "target/idl/zkp2p_solana.json"
-    lcov_path = Path(sys.argv[1]) if len(sys.argv) > 1 else root / "target/coverage/core.lcov"
-    check_idl(idl_path)
-    check_lcov(lcov_path)
-    print("parity coverage gates passed: 60/60 instructions, 100% executable core lines")
+    lcov_path = Path(args.lcov) if args.lcov else root / "target/coverage/core.lcov"
+    if not args.coverage_only:
+        check_idl(idl_path)
+    if not args.idl_only:
+        check_lcov(lcov_path)
+    if args.idl_only:
+        print("parity IDL gate passed: 60/60 instructions")
+    elif args.coverage_only:
+        print("core coverage gate passed: 100% executable core lines")
+    else:
+        print("parity coverage gates passed: 60/60 instructions, 100% executable core lines")
 
 
 if __name__ == "__main__":

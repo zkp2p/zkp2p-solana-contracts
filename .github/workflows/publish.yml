@@ -1,0 +1,117 @@
+name: Publish Solana release
+
+run-name: Publish zkp2p-solana v${{ inputs.release }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Exact Cargo version committed on canonical main
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-zkp2p-solana
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Build, validate, and package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout canonical release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Guard canonical source and version
+        env:
+          RELEASE_VERSION: ${{ inputs.release }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$RELEASE_VERSION" in
+            ''|*[!0-9.]*) printf 'Release must be a numeric SemVer\n' >&2; exit 1 ;;
+          esac
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          cargo_version=$(awk '/^\[package\]$/ { package = 1; next } /^\[/ { package = 0 } package && /^version = / { gsub(/[" ]/, "", $3); print $3; exit }' programs/zkp2p_solana/Cargo.toml)
+          test "$RELEASE_VERSION" = "$cargo_version"
+          if gh release view "v$RELEASE_VERSION" >/dev/null 2>&1; then
+            printf 'Release v%s already exists\n' "$RELEASE_VERSION" >&2
+            exit 1
+          fi
+      - name: Install pinned Rust
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal --component rustfmt,clippy
+          rustup default 1.89.0
+      - name: Install pinned Anchor and Agave
+        run: .github/scripts/install-solana-toolchain.sh
+      - name: Restore release cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cache/solana
+            target
+          key: ${{ runner.os }}-release-1.1.2-3.0.14-${{ hashFiles('Cargo.lock', 'Anchor.toml', '**/Cargo.toml', 'programs/**/*.rs') }}
+          restore-keys: ${{ runner.os }}-release-1.1.2-3.0.14-
+      - name: Build and validate exact source
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets -- -D warnings
+          scripts/build-release-package.sh "${{ inputs.release }}"
+          cargo test --workspace --all-targets
+      - name: Preserve validated package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: zkp2p-solana-v${{ inputs.release }}
+          path: |
+            dist/zkp2p-solana-v${{ inputs.release }}.tar.gz
+            dist/zkp2p-solana-v${{ inputs.release }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  publish:
+    name: Attest and publish immutable package
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: github-release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout release verification code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Download validated package
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: zkp2p-solana-v${{ inputs.release }}
+          path: dist
+      - name: Reverify exact package
+        run: scripts/verify-release-package.sh "dist/zkp2p-solana-v${{ inputs.release }}.tar.gz"
+      - name: Attest package provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: dist/zkp2p-solana-v${{ inputs.release }}.tar.gz
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.release }}
+        run: |
+          gh release create "v$RELEASE_VERSION" \
+            "dist/zkp2p-solana-v${RELEASE_VERSION}.tar.gz" \
+            "dist/zkp2p-solana-v${RELEASE_VERSION}.tar.gz.sha256" \
+            --target "$GITHUB_SHA" \
+            --title "zkp2p-solana v$RELEASE_VERSION" \
+            --generate-notes

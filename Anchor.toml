@@ -8,7 +8,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-zkp2p_solana = "5txaafw2aMsXgsMcMgkutz7HLzdvzM42bZZL4P6Avfv4"
+zkp2p_solana = "5TJD8vLWqAy4hEZLnsxuFKCDnuKXkfQQWpdnqNKYoA1x"
 
 [provider]
 cluster = "localnet"

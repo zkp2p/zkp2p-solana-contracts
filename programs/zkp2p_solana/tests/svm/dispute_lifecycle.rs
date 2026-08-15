@@ -1,7 +1,8 @@
 //! Real-SBF dispute admission, cancellation, covered settlement, and maturity release.
 
 use super::common::{
-    address, anchor_pubkey, install_token_account, pda, send_with_compute, token_amount, Fixture,
+    address, anchor_pubkey, install_token_account, pda, send_with_compute, token_amount,
+    v0_transaction_size, Fixture,
 };
 use anchor_lang::{AccountDeserialize, AnchorSerialize};
 use k256::ecdsa::SigningKey;
@@ -17,7 +18,7 @@ use zkp2p_solana::{
     derive_intent_hash, dispute_attestation_digest, payment_attestation_digest, AmountRange,
     ClaimBalance, CreateDepositArgs, DisputeAttestation, DisputeDetails, FulfillIntentArgs, Intent,
     IntentSnapshot, PaymentAttestation, PaymentDetails, PrepareDisputeArgs, SignalIntentArgs,
-    SubmitDisputeArgs,
+    SubmitDisputeArgs, VerifierConfig,
 };
 
 fn decode<T: AccountDeserialize>(fixture: &Fixture, key: anchor_lang::prelude::Pubkey) -> T {
@@ -29,8 +30,8 @@ fn decode<T: AccountDeserialize>(fixture: &Fixture, key: anchor_lang::prelude::P
     T::try_deserialize(&mut data).expect("account decodes")
 }
 
-fn witness_key() -> (SigningKey, [u8; 20]) {
-    let signing_key = SigningKey::from_slice(&[42_u8; 32]).expect("fixture signing key");
+fn witness_key(seed: u8) -> (SigningKey, [u8; 20]) {
+    let signing_key = SigningKey::from_slice(&[seed; 32]).expect("fixture signing key");
     let encoded = signing_key.verifying_key().to_encoded_point(false);
     let public_key = encoded
         .as_bytes()
@@ -257,6 +258,7 @@ impl CoveredFixture {
                 position: self.stake_position,
                 stake_lock,
                 dispute_intent,
+                instructions_sysvar: solana_program::sysvar::instructions::ID,
                 system_program: anchor_lang::system_program::ID,
             },
             zkp2p_solana::instruction::PrepareDispute {
@@ -313,6 +315,64 @@ impl CoveredFixture {
 }
 
 #[test]
+fn dispute_preparation_cannot_commit_without_matching_atomic_signal() {
+    let mut covered = CoveredFixture::new();
+    let (hash, _intent, _intent_lock, dispute_intent, stake_lock, _taker_state) =
+        covered.addresses(0);
+    let position_before = covered
+        .fixture
+        .svm
+        .get_account(&address(covered.stake_position.to_bytes()))
+        .expect("stake position")
+        .data;
+    let prepare = covered.fixture.program_instruction(
+        zkp2p_solana::accounts::PrepareDispute {
+            taker: covered.actor,
+            orchestrator: covered.fixture.orchestrator,
+            dispute_config: covered.fixture.dispute_config,
+            stake_vault: covered.fixture.stake_vault,
+            deposit: covered.deposit,
+            deposit_setting: None,
+            risk_window: covered.risk_window,
+            selection: None,
+            stake_owner: covered.actor,
+            position: covered.stake_position,
+            stake_lock,
+            dispute_intent,
+            instructions_sysvar: solana_program::sysvar::instructions::ID,
+            system_program: anchor_lang::system_program::ID,
+        },
+        zkp2p_solana::instruction::PrepareDispute {
+            args: PrepareDisputeArgs {
+                expected_intent_hash: hash,
+                payment_method: covered.payment_method_id,
+                amount: 100,
+            },
+        },
+    );
+    assert!(covered.fixture.send(&[prepare]).is_err());
+    assert_eq!(
+        covered
+            .fixture
+            .svm
+            .get_account(&address(covered.stake_position.to_bytes()))
+            .expect("stake position")
+            .data,
+        position_before
+    );
+    assert!(covered
+        .fixture
+        .svm
+        .get_account(&address(stake_lock.to_bytes()))
+        .is_none());
+    assert!(covered
+        .fixture
+        .svm
+        .get_account(&address(dispute_intent.to_bytes()))
+        .is_none());
+}
+
+#[test]
 fn covered_intents_cancel_and_release_only_through_matching_dispute_states() {
     let mut covered = CoveredFixture::new();
     let (_hash, intent, intent_lock, dispute_intent, stake_lock, taker_state) =
@@ -325,9 +385,14 @@ fn covered_intents_cancel_and_release_only_through_matching_dispute_states() {
             position: covered.stake_position,
             stake_lock,
             dispute_intent,
+            instructions_sysvar: solana_program::sysvar::instructions::ID,
         },
         zkp2p_solana::instruction::CancelDispute {},
     );
+    assert!(covered
+        .fixture
+        .send(std::slice::from_ref(&cancel_dispute))
+        .is_err());
     let cancel_intent = covered.fixture.program_instruction(
         zkp2p_solana::accounts::CancelIntent {
             owner: covered.actor,
@@ -427,7 +492,8 @@ fn covered_intents_cancel_and_release_only_through_matching_dispute_states() {
 #[test]
 fn threshold_payment_fulfillment_binds_nullifiers_and_resolves_dispute_claim() {
     let mut covered = CoveredFixture::new();
-    let (signing_key, witness) = witness_key();
+    let (signing_key, witness) = witness_key(42);
+    let (second_signing_key, second_witness) = witness_key(43);
     let verifier_accounts = zkp2p_solana::accounts::ConfigureVerifier {
         authority: covered.actor,
         protocol: covered.fixture.protocol,
@@ -447,6 +513,17 @@ fn threshold_payment_fulfillment_binds_nullifiers_and_resolves_dispute_claim() {
             enabled: false,
         },
     );
+    let add_second_witness = covered.fixture.program_instruction(
+        verifier_accounts,
+        zkp2p_solana::instruction::SetVerifierWitness {
+            witness: second_witness,
+            enabled: true,
+        },
+    );
+    let require_two = covered.fixture.program_instruction(
+        verifier_accounts,
+        zkp2p_solana::instruction::SetRequiredSignatures { required: 2 },
+    );
     let add_method = covered.fixture.program_instruction(
         verifier_accounts,
         zkp2p_solana::instruction::SetVerifierPaymentMethod {
@@ -456,7 +533,13 @@ fn threshold_payment_fulfillment_binds_nullifiers_and_resolves_dispute_claim() {
     );
     covered
         .fixture
-        .send(&[add_witness, remove_initial, add_method])
+        .send(&[
+            add_witness,
+            remove_initial,
+            add_second_witness,
+            require_two,
+            add_method,
+        ])
         .expect("configure signing witness and method");
 
     let (intent_hash, intent_key, intent_lock, dispute_intent, stake_lock, taker_state) =
@@ -488,13 +571,22 @@ fn threshold_payment_fulfillment_binds_nullifiers_and_resolves_dispute_claim() {
         .serialize(&mut payment_payload)
         .expect("serialize snapshot");
     let data_hash = solana_keccak_hasher::hash(&payment_payload).to_bytes();
-    let payment_digest =
-        payment_attestation_digest(covered.fixture.verifier, intent_hash, 100, data_hash);
+    let verifier_config: VerifierConfig = decode(&covered.fixture, covered.fixture.verifier);
+    let payment_digest = payment_attestation_digest(
+        covered.fixture.verifier,
+        verifier_config.domain_chain_id,
+        intent_hash,
+        100,
+        data_hash,
+    );
     let attestation = PaymentAttestation {
         intent_hash,
         release_amount: 100,
         data_hash,
-        signatures: vec![sign_digest(&signing_key, payment_digest)],
+        signatures: vec![
+            sign_digest(&signing_key, payment_digest),
+            sign_digest(&second_signing_key, payment_digest),
+        ],
         payment,
         snapshot,
     };
@@ -561,6 +653,13 @@ fn threshold_payment_fulfillment_binds_nullifiers_and_resolves_dispute_claim() {
             },
         },
     );
+    let fulfill_wire_size = v0_transaction_size(&covered.fixture.authority, &fulfill)
+        .expect("serialize threshold fulfillment with an address lookup table");
+    assert!(
+        fulfill_wire_size <= 1_232,
+        "two-witness fulfillment must fit Solana's packet limit with a v0 lookup table: {fulfill_wire_size}"
+    );
+    eprintln!("fulfill_v0_wire_bytes={fulfill_wire_size}");
     let fulfill_compute = send_with_compute(
         &mut covered.fixture.svm,
         &covered.fixture.authority,
@@ -585,6 +684,7 @@ fn threshold_payment_fulfillment_binds_nullifiers_and_resolves_dispute_claim() {
     let dispute_data_hash = solana_keccak_hasher::hash(&dispute_payload).to_bytes();
     let dispute_digest = dispute_attestation_digest(
         covered.fixture.dispute_config,
+        verifier_config.domain_chain_id,
         intent_hash,
         dispute_data_hash,
     );
@@ -620,7 +720,10 @@ fn threshold_payment_fulfillment_binds_nullifiers_and_resolves_dispute_claim() {
                 attestation: DisputeAttestation {
                     intent_hash,
                     data_hash: dispute_data_hash,
-                    signatures: vec![sign_digest(&signing_key, dispute_digest)],
+                    signatures: vec![
+                        sign_digest(&signing_key, dispute_digest),
+                        sign_digest(&second_signing_key, dispute_digest),
+                    ],
                     details,
                 },
                 expected_payment_nullifier: payment_nullifier,

@@ -48,9 +48,17 @@ All notable changes are recorded here. Optimization entries must include before/
 ### Differences from Solidity
 
 - Consolidate the Solidity contract graph into one SVM program with separate canonical configuration PDAs.
-- Use chain ID zero plus a config-PDA-derived 20-byte verifier domain, and Borsh rather than ABI encoding for signed payload
-  commitments. Attestation services must generate Solana-specific digests.
+- Use a full-width nonzero deployment ID derived on-chain from the program ID and newest authenticated SlotHashes entry,
+  plus a config-PDA-derived 20-byte verifier address. Callers cannot choose the signature domain; attestation services must
+  read the initialized cluster-specific domain and use Borsh rather than ABI for native signed payload commitments.
 - Replace ECDSA deposit-gating signatures with Solana-native Ed25519 precompile verification.
 - Fail closed on a missing/malformed delegated rate; the EVM-only reverting-manager fallback is not reproduced.
-- Keep an economically empty deposit as a closed tombstone when all child PDAs are not supplied for explicit rent cleanup.
-  No token or lock liability remains, but physical account deletion is an explicit SVM maintenance operation.
+- Restrict canonical custody to the legacy SPL Token program and reject Token-2022 mints whose extension semantics can
+  invalidate exact escrow and stake accounting.
+- Cap witness sets at two and require v0 address compression for two-witness settlement transactions.
+- Close a fully withdrawn, non-retained deposit and its empty token vault when no intent liability remains. Existing child
+  configuration PDAs become inert after the canonical parent closes; reclaiming their rent is a separate maintenance task.
+- Bind initialization to the executable's upgrade authority, authenticate target genesis state before writes, and verify
+  loader owner, ProgramData link, upgrade authority, and complete topology before and after upgrades.
+- Require dispute preparation/cancellation to be adjacent to their precisely bound lifecycle transitions so collateral and
+  escrow state cannot be orphaned by a partially committed transaction.

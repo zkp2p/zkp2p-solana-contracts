@@ -32,8 +32,10 @@ ownership. Token movement rejects transfer-tax or otherwise non-exact balance de
 integer math with Solidity-equivalent floor/ceiling semantics.
 
 Payment attestations retain the Solidity EIP-712 struct schemas and Ethereum `r || s || v` witnesses. The SVM domain uses
-chain ID zero and the last 20 bytes of `keccak256(config PDA)` as its verifying-contract value. Canonical payload commitments
-use Borsh instead of Solidity ABI encoding. Intent gating uses Solana's native Ed25519 precompile and the instructions sysvar.
+a full-width nonzero deployment ID that initialization derives on-chain from the program ID and newest hash in the
+fixed-address SlotHashes sysvar; callers cannot supply the domain. EIP-712 uses the last 20 bytes of
+`keccak256(config PDA)` as its verifying-contract value. Canonical payload commitments use Borsh instead of Solidity ABI
+encoding. Intent gating uses Solana's native Ed25519 precompile and the instructions sysvar.
 
 ## Build and test
 
@@ -50,15 +52,24 @@ is absent or stale. The real-SBF suites execute all 60 public instructions; prop
 fee, and rate invariants without external services. See [docs/TESTING.md](docs/TESTING.md) for the coverage denominator and
 instruction-to-suite matrix.
 
+`scripts/build-release-package.sh` creates a checksummed archive containing only the SBF program, IDL, and public protocol
+documentation. Pull requests build and verify that package; the manual publishing workflow accepts only the exact version
+on canonical `main`, attests the validated archive, and publishes it as a GitHub release.
+
 ## Deliberate SVM differences
 
 - The EVM contract graph is one program with separate config PDAs. Internal component authorization is therefore PDA-based,
   not contract registry/CPI based.
 - A malformed delegated-rate account fails closed. There is no analogue of the Solidity `try/catch` fallback.
-- Account rent cleanup is explicit. A fully withdrawn, non-retained deposit becomes a closed-to-intents tombstone until its
-  child configuration PDAs can be supplied for cleanup; economic liquidity and intent state match Solidity immediately.
+- A fully withdrawn, non-retained deposit with no outstanding intents closes its deposit and token-vault accounts, matching
+  Solidity terminal state. Any already-created child configuration PDAs are inert once the canonical parent is closed and
+  can be reclaimed by a future rent-maintenance instruction without preserving a legacy protocol path.
 - Native Ed25519 verifies intent gating; secp256k1 remains only where compatibility with existing attestation witnesses is
   required.
+- The canonical custody mint must be owned by the legacy SPL Token program. Token-2022 extensions, transfer hooks, permanent
+  delegates, and transfer-fee semantics are deliberately unsupported because they can violate exact liability accounting.
+- Witness sets are capped at two. Two-witness fulfillment uses a v0 transaction with an address lookup table; the real-SBF
+  suite proves the canonical wire payload is 811 bytes, below Solana's 1,232-byte packet limit.
 - Borsh replaces ABI encoding for signed data payload commitments, while the outer EIP-712 schemas remain stable.
 
 See [CHANGELOG.md](CHANGELOG.md) for behavioral changes and optimization evidence.

@@ -13,7 +13,7 @@ use anchor_lang::prelude::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("5txaafw2aMsXgsMcMgkutz7HLzdvzM42bZZL4P6Avfv4");
+declare_id!("5TJD8vLWqAy4hEZLnsxuFKCDnuKXkfQQWpdnqNKYoA1x");
 
 /// Program instruction dispatch.
 #[program]
