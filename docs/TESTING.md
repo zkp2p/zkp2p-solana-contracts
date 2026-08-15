@@ -35,11 +35,17 @@ anchor build
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo llvm-cov --lib --lcov --output-path target/coverage/core.lcov
+scripts/build-release-package.sh --skip-build
 ```
 
 The test helpers construct real SPL Token accounts and submit signed Solana transactions. Threshold verifier tests derive
 an Ethereum address from a deterministic test-only secp256k1 key, sign the exact EIP-712 digest, and exercise both payment
 and dispute nullifier bindings. No deployment credential or production witness key is used in tests.
+
+CI runs the host and real-SBF lanes in parallel with a five-minute timeout per lane. Toolchain downloads, GitHub Actions,
+and artifact digests are pinned. The SBF lane produces the same deterministic binary/IDL release archive used by the
+manual publishing workflow; `scripts/verify-release-package.sh` rejects path traversal, secret-bearing filenames, missing
+public files, or checksum/identity mismatches before upload or publication.
 
 ## Fuzz and invariant suites
 
