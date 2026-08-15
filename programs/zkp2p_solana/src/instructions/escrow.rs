@@ -356,7 +356,7 @@ pub fn handle_remove_funds(ctx: Context<RemoveFunds>, amount: u64) -> Result<()>
 #[derive(Accounts)]
 pub struct WithdrawDeposit<'info> {
     /// Deposit owner.
-    #[account(address = deposit.depositor)]
+    #[account(mut, address = deposit.depositor)]
     pub depositor: Signer<'info>,
     /// Existing deposit.
     #[account(mut, has_one = token_mint)]
@@ -374,22 +374,48 @@ pub struct WithdrawDeposit<'info> {
     pub token_program: Interface<'info, TokenInterface>,
 }
 
-/// Returns all available principal and leaves only outstanding lock liabilities live.
+/// Returns all available principal and closes liability-free, non-retained deposits.
 pub fn handle_withdraw_deposit(ctx: Context<WithdrawDeposit>) -> Result<()> {
     let amount = ctx.accounts.deposit.remaining_deposits;
     ctx.accounts.deposit.remaining_deposits = 0;
     ctx.accounts.deposit.accepting_intents = false;
-    if amount == 0 {
-        return Ok(());
+    if amount > 0 {
+        transfer_from_deposit(
+            &ctx.accounts.deposit,
+            &ctx.accounts.deposit_vault,
+            &ctx.accounts.depositor_token,
+            &ctx.accounts.token_mint,
+            &ctx.accounts.token_program,
+            amount,
+        )?;
     }
-    transfer_from_deposit(
-        &ctx.accounts.deposit,
-        &ctx.accounts.deposit_vault,
-        &ctx.accounts.depositor_token,
-        &ctx.accounts.token_mint,
-        &ctx.accounts.token_program,
-        amount,
-    )
+
+    if ctx.accounts.deposit.active_intents == 0
+        && ctx.accounts.deposit.outstanding_intent_amount == 0
+        && !ctx.accounts.deposit.retain_on_empty
+    {
+        let id = ctx.accounts.deposit.id.to_le_bytes();
+        let bump = [ctx.accounts.deposit.bump];
+        let signer_seeds: &[&[u8]] = &[
+            DEPOSIT_SEED,
+            ctx.accounts.deposit.escrow_config.as_ref(),
+            &id,
+            &bump,
+        ];
+        token_interface::close_account(CpiContext::new_with_signer(
+            ctx.accounts.token_program.key(),
+            token_interface::CloseAccount {
+                account: ctx.accounts.deposit_vault.to_account_info(),
+                destination: ctx.accounts.depositor.to_account_info(),
+                authority: ctx.accounts.deposit.to_account_info(),
+            },
+            &[signer_seeds],
+        ))?;
+        ctx.accounts
+            .deposit
+            .close(ctx.accounts.depositor.to_account_info())?;
+    }
+    Ok(())
 }
 
 /// Mutable maker-controlled deposit settings.

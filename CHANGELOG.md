@@ -52,5 +52,5 @@ All notable changes are recorded here. Optimization entries must include before/
   commitments. Attestation services must generate Solana-specific digests.
 - Replace ECDSA deposit-gating signatures with Solana-native Ed25519 precompile verification.
 - Fail closed on a missing/malformed delegated rate; the EVM-only reverting-manager fallback is not reproduced.
-- Keep an economically empty deposit as a closed tombstone when all child PDAs are not supplied for explicit rent cleanup.
-  No token or lock liability remains, but physical account deletion is an explicit SVM maintenance operation.
+- Close a fully withdrawn, non-retained deposit and its empty token vault when no intent liability remains. Existing child
+  configuration PDAs become inert after the canonical parent closes; reclaiming their rent is a separate maintenance task.
