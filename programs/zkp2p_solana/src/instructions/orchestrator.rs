@@ -11,8 +11,8 @@ use crate::{
         ADDRESS_GROUP_SEED, DEPOSIT_CURRENCY_SEED, DEPOSIT_DISPUTE_SETTING_SEED,
         DEPOSIT_WHITELIST_MEMBER_SEED, DEPOSIT_WHITELIST_SEED, DISPUTE_CONFIG_SEED,
         DISPUTE_INTENT_SEED, ESCROW_INTENT_LOCK_SEED, GROUP_MEMBER_SEED, INTENT_SEED, MAX_FEE,
-        MAX_REFERRAL_FEE, PAYMENT_METHOD_SEED, RISK_WINDOW_SEED, STAKE_LOCK_SEED,
-        STAKE_POSITION_SEED, STAKE_VAULT_CONFIG_SEED, TAKER_INTENT_STATE_SEED,
+        MAX_REFERRAL_FEE, MAX_RESOLVER_ACCOUNTS, PAYMENT_METHOD_SEED, RISK_WINDOW_SEED,
+        STAKE_LOCK_SEED, STAKE_POSITION_SEED, STAKE_VAULT_CONFIG_SEED, TAKER_INTENT_STATE_SEED,
     },
     error::Zkp2pError,
     state::{
@@ -370,8 +370,9 @@ pub struct PruneExpiredIntent<'info> {
     /// Permissionless caller.
     pub caller: Signer<'info>,
     /// Original owner receives reclaimed account rent.
+    /// CHECK: The address is bound to the snapshotted owner; any account may receive lamports.
     #[account(mut, address = intent.owner)]
-    pub owner_rent: SystemAccount<'info>,
+    pub owner_rent: UncheckedAccount<'info>,
     /// Canonical orchestrator.
     #[account(seeds = [crate::constants::ORCHESTRATOR_CONFIG_SEED], bump = orchestrator.bump)]
     pub orchestrator: Box<Account<'info, OrchestratorConfig>>,
@@ -634,6 +635,10 @@ fn validate_gating_signature(
         .serialize(&mut message)
         .map_err(|_| error!(Zkp2pError::DataHashMismatch))?;
     args.gating_signature_expiration
+        .serialize(&mut message)
+        .map_err(|_| error!(Zkp2pError::DataHashMismatch))?;
+    orchestrator
+        .domain_chain_id
         .serialize(&mut message)
         .map_err(|_| error!(Zkp2pError::DataHashMismatch))?;
     crate::ID
@@ -999,15 +1004,14 @@ fn resolver_says_yes<'info>(
     let resolver = resolver_program.ok_or(Zkp2pError::TakerNotWhitelisted)?;
     require_keys_eq!(resolver.key(), expected_program, Zkp2pError::Unauthorized);
     require!(resolver.executable, Zkp2pError::Unauthorized);
-
+    require!(
+        resolver_accounts.len() <= MAX_RESOLVER_ACCOUNTS,
+        Zkp2pError::AmountAboveMaximum
+    );
     let metas = resolver_accounts
         .iter()
-        .map(|account| solana_program::instruction::AccountMeta {
-            pubkey: account.key(),
-            is_signer: account.is_signer,
-            is_writable: account.is_writable,
-        })
-        .collect();
+        .map(readonly_resolver_meta)
+        .collect::<Result<Vec<_>>>()?;
     let mut data = b"zkp2p-whitelist-resolver-v1".to_vec();
     data.extend_from_slice(&group.id);
     data.extend_from_slice(taker.as_ref());
@@ -1018,12 +1022,27 @@ fn resolver_says_yes<'info>(
     };
     let mut account_infos = resolver_accounts.to_vec();
     account_infos.push(resolver.to_account_info());
-    solana_program::program::invoke(&instruction, &account_infos)?;
-    Ok(
-        solana_program::program::get_return_data().is_some_and(|(program_id, result)| {
-            program_id == resolver.key() && result.as_slice() == [1]
-        }),
-    )
+    if solana_program::program::invoke(&instruction, &account_infos).is_err() {
+        return Ok(false);
+    }
+    Ok(resolver_return_is_yes(
+        resolver.key(),
+        solana_program::program::get_return_data(),
+    ))
+}
+
+fn readonly_resolver_meta(account: &AccountInfo<'_>) -> Result<AccountMeta> {
+    require!(
+        !account.is_signer && !account.is_writable,
+        Zkp2pError::Unauthorized
+    );
+    Ok(AccountMeta::new_readonly(account.key(), false))
+}
+
+fn resolver_return_is_yes(expected_program: Pubkey, returned: Option<(Pubkey, Vec<u8>)>) -> bool {
+    returned.is_some_and(|(program_id, result)| {
+        program_id == expected_program && result.as_slice() == [1]
+    })
 }
 
 /// Derives the Solidity-compatible intent identifier and reduces it into the Circom scalar field.
@@ -1118,5 +1137,52 @@ mod tests {
             &signer,
             &message
         ));
+    }
+
+    #[test]
+    fn resolver_privileges_and_return_data_fail_closed() {
+        let key = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let mut lamports = 0;
+        let mut data = [];
+        let readonly =
+            AccountInfo::new(&key, false, false, &mut lamports, &mut data, &owner, false);
+        let meta = readonly_resolver_meta(&readonly).expect("read-only resolver input");
+        assert!(!meta.is_signer);
+        assert!(!meta.is_writable);
+
+        let mut signer_lamports = 0;
+        let mut signer_data = [];
+        let signer = AccountInfo::new(
+            &key,
+            true,
+            false,
+            &mut signer_lamports,
+            &mut signer_data,
+            &owner,
+            false,
+        );
+        assert!(readonly_resolver_meta(&signer).is_err());
+        let mut writable_lamports = 0;
+        let mut writable_data = [];
+        let writable = AccountInfo::new(
+            &key,
+            false,
+            true,
+            &mut writable_lamports,
+            &mut writable_data,
+            &owner,
+            false,
+        );
+        assert!(readonly_resolver_meta(&writable).is_err());
+
+        assert!(!resolver_return_is_yes(key, None));
+        assert!(!resolver_return_is_yes(key, Some((key, Vec::new()))));
+        assert!(!resolver_return_is_yes(key, Some((key, vec![1, 0]))));
+        assert!(!resolver_return_is_yes(
+            key,
+            Some((Pubkey::new_unique(), vec![1]))
+        ));
+        assert!(resolver_return_is_yes(key, Some((key, vec![1]))));
     }
 }

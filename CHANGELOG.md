@@ -48,9 +48,16 @@ All notable changes are recorded here. Optimization entries must include before/
 ### Differences from Solidity
 
 - Consolidate the Solidity contract graph into one SVM program with separate canonical configuration PDAs.
-- Use chain ID zero plus a config-PDA-derived 20-byte verifier domain, and Borsh rather than ABI encoding for signed payload
-  commitments. Attestation services must generate Solana-specific digests.
+- Use a nonzero, genesis-hash-derived deployment ID plus a config-PDA-derived 20-byte verifier domain, and Borsh rather than
+  ABI encoding for signed payload commitments. Attestation services must generate cluster-specific Solana digests.
 - Replace ECDSA deposit-gating signatures with Solana-native Ed25519 precompile verification.
 - Fail closed on a missing/malformed delegated rate; the EVM-only reverting-manager fallback is not reproduced.
+- Restrict canonical custody to the legacy SPL Token program and reject Token-2022 mints whose extension semantics can
+  invalidate exact escrow and stake accounting.
+- Cap witness sets at two and require v0 address compression for two-witness settlement transactions.
 - Close a fully withdrawn, non-retained deposit and its empty token vault when no intent liability remains. Existing child
   configuration PDAs become inert after the canonical parent closes; reclaiming their rent is a separate maintenance task.
+- Bind initialization to the executable's upgrade authority, authenticate target genesis state before writes, and verify
+  loader owner, ProgramData link, upgrade authority, and complete topology before and after upgrades.
+- Require dispute preparation/cancellation to be adjacent to their precisely bound lifecycle transitions so collateral and
+  escrow state cannot be orphaned by a partially committed transaction.

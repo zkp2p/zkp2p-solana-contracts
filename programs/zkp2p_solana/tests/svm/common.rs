@@ -10,9 +10,10 @@ use solana_account::Account;
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
-use solana_message::Message;
+use solana_loader_v3_interface::state::UpgradeableLoaderState;
+use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
 use solana_signer::Signer;
-use solana_transaction::Transaction;
+use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use zkp2p_solana::{
     constants::{
         DISPUTE_CONFIG_SEED, ESCROW_CONFIG_SEED, ORCHESTRATOR_CONFIG_SEED, PROTOCOL_SEED,
@@ -36,6 +37,35 @@ pub fn program_binary() -> PathBuf {
 
 pub fn pda(seeds: &[&[u8]]) -> anchor_lang::prelude::Pubkey {
     anchor_lang::prelude::Pubkey::find_program_address(seeds, &zkp2p_solana::ID).0
+}
+
+pub fn authorize_program_upgrade(
+    svm: &mut LiteSVM,
+    authority: Address,
+) -> anchor_lang::prelude::Pubkey {
+    let loader = anchor_lang::solana_program::bpf_loader_upgradeable::ID;
+    let program_data =
+        anchor_lang::prelude::Pubkey::find_program_address(&[zkp2p_solana::ID.as_ref()], &loader).0;
+    let mut account = svm
+        .get_account(&address(program_data.to_bytes()))
+        .expect("programdata account");
+    let state = UpgradeableLoaderState::ProgramData {
+        slot: 0,
+        upgrade_authority_address: Some(
+            authority.to_string().parse().expect("interface authority"),
+        ),
+    };
+    bincode::serialize_into(
+        account
+            .data
+            .get_mut(..UpgradeableLoaderState::size_of_programdata_metadata())
+            .expect("programdata metadata"),
+        &state,
+    )
+    .expect("set test upgrade authority");
+    svm.set_account(address(program_data.to_bytes()), account)
+        .expect("update programdata account");
+    program_data
 }
 
 pub fn install_token_account(
@@ -82,6 +112,19 @@ pub fn token_amount(svm: &LiteSVM, key: anchor_lang::prelude::Pubkey) -> u64 {
     u64::from_le_bytes(bytes)
 }
 
+pub fn set_token_amount(svm: &mut LiteSVM, key: anchor_lang::prelude::Pubkey, amount: u64) {
+    let mut account = svm
+        .get_account(&address(key.to_bytes()))
+        .expect("token account exists");
+    account
+        .data
+        .get_mut(64..72)
+        .expect("token amount field")
+        .copy_from_slice(&amount.to_le_bytes());
+    svm.set_account(address(key.to_bytes()), account)
+        .expect("update token amount");
+}
+
 pub fn send(
     svm: &mut LiteSVM,
     payer: &Keypair,
@@ -112,6 +155,30 @@ pub fn send_with_compute(
         .map_err(|error| format!("{error:?}"))
 }
 
+pub fn v0_transaction_size(payer: &Keypair, instruction: &Instruction) -> Result<u64, String> {
+    let mut addresses = Vec::new();
+    for account in &instruction.accounts {
+        if !account.is_signer && !addresses.contains(&account.pubkey) {
+            addresses.push(account.pubkey);
+        }
+    }
+    let lookup = AddressLookupTableAccount {
+        key: Address::new_unique(),
+        addresses,
+    };
+    let message = v0::Message::try_compile(
+        &payer.pubkey(),
+        std::slice::from_ref(instruction),
+        &[lookup],
+        Default::default(),
+    )
+    .map_err(|error| format!("compile v0 transaction: {error}"))?;
+    let transaction = VersionedTransaction::try_new(VersionedMessage::V0(message), &[payer])
+        .map_err(|error| format!("sign v0 transaction: {error}"))?;
+    bincode::serialized_size(&transaction)
+        .map_err(|error| format!("serialize v0 transaction: {error}"))
+}
+
 pub struct Fixture {
     pub svm: LiteSVM,
     pub authority: Keypair,
@@ -132,6 +199,7 @@ impl Fixture {
         svm.add_program_from_file(address(zkp2p_solana::ID.to_bytes()), program_binary())
             .expect("load SBF program");
         let authority = Keypair::new_from_array([1_u8; 32]);
+        let program_data = authorize_program_upgrade(&mut svm, authority.pubkey());
         svm.airdrop(&authority.pubkey(), 50_000_000_000)
             .expect("fund authority");
 
@@ -169,6 +237,8 @@ impl Fixture {
             program_id: address(zkp2p_solana::ID.to_bytes()),
             accounts: zkp2p_solana::accounts::InitializeProtocol {
                 authority: anchor_pubkey(fixture.authority.pubkey()),
+                program: zkp2p_solana::ID,
+                program_data,
                 protocol: fixture.protocol,
                 stake_mint: fixture.mint,
                 escrow_config: fixture.escrow,
@@ -183,6 +253,7 @@ impl Fixture {
             .to_account_metas(None),
             data: zkp2p_solana::instruction::InitializeProtocol {
                 args: InitializeProtocolArgs {
+                    domain_chain_id: 1,
                     protocol_fee: 10_000_000_000_000_000,
                     protocol_fee_recipient: anchor_pubkey(fixture.authority.pubkey()),
                     intent_expiration_period: 1_800,

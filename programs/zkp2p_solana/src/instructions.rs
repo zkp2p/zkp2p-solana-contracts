@@ -5,9 +5,10 @@ use anchor_spl::token_interface::Mint;
 
 use crate::{
     constants::{
-        DISPUTE_CONFIG_SEED, ESCROW_CONFIG_SEED, MAX_FEE, MIN_CONTROLLER_CHANGE_DELAY_SECONDS,
-        ORCHESTRATOR_CONFIG_SEED, PROTOCOL_SEED, RATE_MANAGER_CONFIG_SEED, STAKE_VAULT_CONFIG_SEED,
-        VERIFIER_CONFIG_SEED, WHITELIST_CONFIG_SEED,
+        DISPUTE_CONFIG_SEED, ESCROW_CONFIG_SEED, MAX_FEE, MAX_WITNESSES,
+        MIN_CONTROLLER_CHANGE_DELAY_SECONDS, ORCHESTRATOR_CONFIG_SEED, PROTOCOL_SEED,
+        RATE_MANAGER_CONFIG_SEED, STAKE_VAULT_CONFIG_SEED, VERIFIER_CONFIG_SEED,
+        WHITELIST_CONFIG_SEED,
     },
     error::Zkp2pError,
     state::{
@@ -41,6 +42,18 @@ pub struct InitializeProtocol<'info> {
     /// Governance authority and rent payer.
     #[account(mut)]
     pub authority: Signer<'info>,
+    /// This program's executable account, used to derive its canonical ProgramData.
+    #[account(
+        constraint = program.programdata_address()? == Some(program_data.key())
+            @ Zkp2pError::Unauthorized
+    )]
+    pub program: Program<'info, crate::program::Zkp2pSolana>,
+    /// Upgradeable-loader state proving the initializer controls this deployment.
+    #[account(
+        constraint = program_data.upgrade_authority_address == Some(authority.key())
+            @ Zkp2pError::Unauthorized
+    )]
+    pub program_data: Account<'info, ProgramData>,
     /// Canonical root PDA.
     #[account(
         init,
@@ -124,6 +137,16 @@ pub fn handle_initialize_protocol(
     ctx: Context<InitializeProtocol>,
     args: InitializeProtocolArgs,
 ) -> Result<()> {
+    require!(args.domain_chain_id > 0, Zkp2pError::ZeroValue);
+    require_keys_eq!(
+        *ctx.accounts.stake_mint.to_account_info().owner,
+        anchor_spl::token::ID,
+        Zkp2pError::Unauthorized
+    );
+    require!(
+        ctx.accounts.stake_mint.decimals == 6,
+        Zkp2pError::Unauthorized
+    );
     require!(args.protocol_fee <= MAX_FEE, Zkp2pError::FeeExceedsMaximum);
     require!(
         args.protocol_fee_recipient != Pubkey::default(),
@@ -146,7 +169,7 @@ pub fn handle_initialize_protocol(
         Zkp2pError::InvalidSignature
     );
     require!(
-        args.initial_witnesses.len() <= 16,
+        args.initial_witnesses.len() <= MAX_WITNESSES,
         Zkp2pError::AmountAboveMaximum
     );
     for witness_index in 0..args.initial_witnesses.len() {
@@ -184,6 +207,7 @@ pub fn handle_initialize_protocol(
 
     let verifier = &mut ctx.accounts.verifier_config;
     verifier.protocol = protocol.key();
+    verifier.domain_chain_id = args.domain_chain_id;
     verifier.required_signatures = args.required_signatures;
     verifier.witnesses = args.initial_witnesses;
     verifier.payment_methods = Vec::new();
@@ -193,6 +217,7 @@ pub fn handle_initialize_protocol(
     orchestrator.protocol = protocol.key();
     orchestrator.escrow_config = escrow.key();
     orchestrator.verifier_config = verifier.key();
+    orchestrator.domain_chain_id = args.domain_chain_id;
     orchestrator.protocol_fee = args.protocol_fee;
     orchestrator.protocol_fee_recipient = args.protocol_fee_recipient;
     orchestrator.lifecycle_policy = LifecyclePolicy::WhitelistAndDispute;
@@ -225,6 +250,7 @@ pub fn handle_initialize_protocol(
 
     let dispute = &mut ctx.accounts.dispute_config;
     dispute.protocol = protocol.key();
+    dispute.domain_chain_id = args.domain_chain_id;
     dispute.stake_vault = stake_vault.key();
     dispute.verifier_config = verifier.key();
     dispute.admissions_paused = false;

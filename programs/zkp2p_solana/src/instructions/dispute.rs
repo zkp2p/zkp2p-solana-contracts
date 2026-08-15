@@ -1,6 +1,9 @@
 //! Stake-backed dispute-protection policy instructions.
 
 use anchor_lang::prelude::*;
+use solana_program::sysvar::instructions::{
+    load_current_index_checked, load_instruction_at_checked,
+};
 
 use crate::{
     constants::{
@@ -203,6 +206,10 @@ pub struct PrepareDispute<'info> {
         bump
     )]
     pub dispute_intent: Box<Account<'info, DisputeIntent>>,
+    /// Instruction sysvar proving that matching signal admission follows atomically.
+    /// CHECK: Anchor enforces the canonical sysvar address and only instruction data is read.
+    #[account(address = solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
     /// System program.
     pub system_program: Program<'info, System>,
 }
@@ -218,6 +225,18 @@ pub fn handle_prepare_dispute(
     );
     require!(args.amount > 0, Zkp2pError::ZeroValue);
     require!(ctx.accounts.risk_window.seconds > 0, Zkp2pError::ZeroValue);
+    require!(
+        ctx.accounts.orchestrator.lifecycle_policy == crate::LifecyclePolicy::WhitelistAndDispute,
+        Zkp2pError::DisputeProtectionDisabled
+    );
+    require_atomic_signal_follows(
+        &ctx.accounts.instructions_sysvar,
+        args,
+        ctx.accounts.taker.key(),
+        ctx.accounts.orchestrator.key(),
+        ctx.accounts.deposit.key(),
+        ctx.accounts.dispute_intent.key(),
+    )?;
     if let Some(setting) = &ctx.accounts.deposit_setting {
         require_keys_eq!(
             setting.deposit,
@@ -272,6 +291,61 @@ pub fn handle_prepare_dispute(
     Ok(())
 }
 
+fn require_atomic_signal_follows(
+    instructions_sysvar: &AccountInfo<'_>,
+    prepared: PrepareDisputeArgs,
+    taker: Pubkey,
+    orchestrator: Pubkey,
+    deposit: Pubkey,
+    dispute_intent: Pubkey,
+) -> Result<()> {
+    let current = usize::from(
+        load_current_index_checked(instructions_sysvar)
+            .map_err(|_| error!(Zkp2pError::Unauthorized))?,
+    );
+    let next = current
+        .checked_add(1)
+        .ok_or(Zkp2pError::ArithmeticOverflow)?;
+    let instruction = load_instruction_at_checked(next, instructions_sysvar)
+        .map_err(|_| error!(Zkp2pError::Unauthorized))?;
+    require_keys_eq!(instruction.program_id, crate::ID, Zkp2pError::Unauthorized);
+    // `SignalIntent` account ordering is part of the public IDL. Bind every account
+    // that connects the prepared collateral to the following admission.
+    for (index, expected) in [
+        (0, taker),
+        (1, orchestrator),
+        (3, deposit),
+        (14, dispute_intent),
+    ] {
+        let supplied = instruction
+            .accounts
+            .get(index)
+            .ok_or(Zkp2pError::Unauthorized)?;
+        require_keys_eq!(supplied.pubkey, expected, Zkp2pError::Unauthorized);
+    }
+    require!(
+        instruction
+            .accounts
+            .first()
+            .is_some_and(|account| account.is_signer && account.is_writable),
+        Zkp2pError::Unauthorized
+    );
+    let discriminator = crate::instruction::SignalIntent::DISCRIMINATOR;
+    let encoded_args = instruction
+        .data
+        .strip_prefix(discriminator)
+        .ok_or(Zkp2pError::Unauthorized)?;
+    let signal = crate::SignalIntentArgs::try_from_slice(encoded_args)
+        .map_err(|_| error!(Zkp2pError::Unauthorized))?;
+    require!(
+        signal.expected_intent_hash == prepared.expected_intent_hash
+            && signal.payment_method == prepared.payment_method
+            && signal.amount == prepared.amount,
+        Zkp2pError::IntentSnapshotMismatch
+    );
+    Ok(())
+}
+
 /// Accounts for cancelling pending collateral alongside an owner intent cancellation.
 #[derive(Accounts)]
 pub struct CancelDispute<'info> {
@@ -307,12 +381,87 @@ pub struct CancelDispute<'info> {
         constraint = dispute_intent.intent_hash == intent.intent_hash @ Zkp2pError::IntentSnapshotMismatch
     )]
     pub dispute_intent: Account<'info, DisputeIntent>,
+    /// Instruction sysvar proving that the matching escrow cancellation follows atomically.
+    /// CHECK: Anchor enforces the canonical sysvar address and only instruction data is read.
+    #[account(address = solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
 }
 
 /// Cancels pending coverage and restores complete free stake.
 pub fn handle_cancel_dispute(ctx: Context<CancelDispute>) -> Result<()> {
+    require_atomic_cancel_follows(
+        &ctx.accounts.instructions_sysvar,
+        &ctx.accounts.intent,
+        ctx.accounts.intent.key(),
+        ctx.accounts.owner.key(),
+        ctx.accounts.dispute_intent.key(),
+    )?;
     ctx.accounts.dispute_intent.cancel()?;
     ctx.accounts.position.unlock(ctx.accounts.stake_lock.amount)
+}
+
+fn require_atomic_cancel_follows(
+    instructions_sysvar: &AccountInfo<'_>,
+    intent: &Intent,
+    intent_key: Pubkey,
+    owner: Pubkey,
+    dispute_intent: Pubkey,
+) -> Result<()> {
+    let current = usize::from(
+        load_current_index_checked(instructions_sysvar)
+            .map_err(|_| error!(Zkp2pError::Unauthorized))?,
+    );
+    let next = current
+        .checked_add(1)
+        .ok_or(Zkp2pError::ArithmeticOverflow)?;
+    let instruction = load_instruction_at_checked(next, instructions_sysvar)
+        .map_err(|_| error!(Zkp2pError::Unauthorized))?;
+    require_keys_eq!(instruction.program_id, crate::ID, Zkp2pError::Unauthorized);
+    let expected_lock = Pubkey::find_program_address(
+        &[
+            crate::constants::ESCROW_INTENT_LOCK_SEED,
+            intent.deposit.as_ref(),
+            &intent.intent_hash,
+        ],
+        &crate::ID,
+    )
+    .0;
+    let expected_taker_state = Pubkey::find_program_address(
+        &[
+            crate::constants::TAKER_INTENT_STATE_SEED,
+            intent.orchestrator.as_ref(),
+            owner.as_ref(),
+        ],
+        &crate::ID,
+    )
+    .0;
+    for (index, expected) in [
+        (0, owner),
+        (1, intent.orchestrator),
+        (2, intent_key),
+        (3, intent.deposit),
+        (4, expected_lock),
+        (5, dispute_intent),
+        (6, expected_taker_state),
+    ] {
+        let supplied = instruction
+            .accounts
+            .get(index)
+            .ok_or(Zkp2pError::Unauthorized)?;
+        require_keys_eq!(supplied.pubkey, expected, Zkp2pError::Unauthorized);
+    }
+    require!(
+        instruction
+            .accounts
+            .first()
+            .is_some_and(|account| account.is_signer && account.is_writable),
+        Zkp2pError::Unauthorized
+    );
+    require!(
+        instruction.data.as_slice() == crate::instruction::CancelIntent::DISCRIMINATOR,
+        Zkp2pError::Unauthorized
+    );
+    Ok(())
 }
 
 /// Accounts for permissionlessly releasing mature, settled collateral.
@@ -533,6 +682,7 @@ pub fn handle_submit_dispute(ctx: Context<SubmitDispute>, args: SubmitDisputeArg
 
     let digest = dispute_attestation_digest(
         ctx.accounts.dispute_config.key(),
+        ctx.accounts.dispute_config.domain_chain_id,
         attestation.intent_hash,
         attestation.data_hash,
     );
@@ -592,17 +742,20 @@ fn dispute_data_hash(details: &DisputeDetails) -> [u8; 32] {
 /// Returns the EIP-712 digest for Solana dispute verifier evidence.
 pub fn dispute_attestation_digest(
     dispute_config: Pubkey,
+    domain_chain_id: u64,
     intent_hash: [u8; 32],
     data_hash: [u8; 32],
 ) -> [u8; 32] {
     let account_hash = keccak::hash(dispute_config.as_ref()).to_bytes();
     let mut address_word = [0_u8; 32];
     address_word[12..].copy_from_slice(&account_hash[12..]);
+    let mut chain_id = [0_u8; 32];
+    chain_id[24..].copy_from_slice(&domain_chain_id.to_be_bytes());
     let domain_separator = keccak::hashv(&[
         &EIP712_DOMAIN_TYPEHASH,
         &DISPUTE_VERIFIER_NAME_HASH,
         &EIP712_VERSION_ONE_HASH,
-        &[0_u8; 32],
+        &chain_id,
         &address_word,
     ])
     .to_bytes();
@@ -630,18 +783,22 @@ mod tests {
     #[test]
     fn dispute_digest_is_bound_to_domain_intent_and_payload() {
         let config = Pubkey::new_unique();
-        let baseline = dispute_attestation_digest(config, [1; 32], [2; 32]);
+        let baseline = dispute_attestation_digest(config, 1, [1; 32], [2; 32]);
         assert_ne!(
             baseline,
-            dispute_attestation_digest(Pubkey::new_unique(), [1; 32], [2; 32])
+            dispute_attestation_digest(Pubkey::new_unique(), 1, [1; 32], [2; 32])
         );
         assert_ne!(
             baseline,
-            dispute_attestation_digest(config, [3; 32], [2; 32])
+            dispute_attestation_digest(config, 1, [3; 32], [2; 32])
         );
         assert_ne!(
             baseline,
-            dispute_attestation_digest(config, [1; 32], [4; 32])
+            dispute_attestation_digest(config, 1, [1; 32], [4; 32])
+        );
+        assert_ne!(
+            baseline,
+            dispute_attestation_digest(config, 2, [1; 32], [2; 32])
         );
     }
 

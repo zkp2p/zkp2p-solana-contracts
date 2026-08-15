@@ -358,6 +358,13 @@ pub struct WithdrawDeposit<'info> {
     /// Deposit owner.
     #[account(mut, address = deposit.depositor)]
     pub depositor: Signer<'info>,
+    /// Canonical escrow settings, including the configured dust policy.
+    #[account(
+        seeds = [ESCROW_CONFIG_SEED],
+        bump = escrow_config.bump,
+        constraint = deposit.escrow_config == escrow_config.key() @ Zkp2pError::DepositNotFound
+    )]
+    pub escrow_config: Box<Account<'info, EscrowConfig>>,
     /// Existing deposit.
     #[account(mut, has_one = token_mint)]
     pub deposit: Box<Account<'info, Deposit>>,
@@ -370,6 +377,14 @@ pub struct WithdrawDeposit<'info> {
     /// Owner destination account.
     #[account(mut, token::mint = token_mint, token::authority = depositor, token::token_program = token_program)]
     pub depositor_token: Box<InterfaceAccount<'info, TokenAccount>>,
+    /// Configured dust recipient's token account for this mint.
+    #[account(
+        mut,
+        token::mint = token_mint,
+        token::authority = escrow_config.dust_recipient,
+        token::token_program = token_program
+    )]
+    pub dust_recipient_token: Box<InterfaceAccount<'info, TokenAccount>>,
     /// SPL Token or Token-2022 program.
     pub token_program: Interface<'info, TokenInterface>,
 }
@@ -394,6 +409,22 @@ pub fn handle_withdraw_deposit(ctx: Context<WithdrawDeposit>) -> Result<()> {
         && ctx.accounts.deposit.outstanding_intent_amount == 0
         && !ctx.accounts.deposit.retain_on_empty
     {
+        ctx.accounts.deposit_vault.reload()?;
+        let residual = ctx.accounts.deposit_vault.amount;
+        if residual > ctx.accounts.escrow_config.dust_threshold {
+            ctx.accounts.deposit.retain_on_empty = true;
+            return Ok(());
+        }
+        if residual > 0 {
+            transfer_from_deposit(
+                &ctx.accounts.deposit,
+                &ctx.accounts.deposit_vault,
+                &ctx.accounts.dust_recipient_token,
+                &ctx.accounts.token_mint,
+                &ctx.accounts.token_program,
+                residual,
+            )?;
+        }
         let id = ctx.accounts.deposit.id.to_le_bytes();
         let bump = [ctx.accounts.deposit.bump];
         let signer_seeds: &[&[u8]] = &[

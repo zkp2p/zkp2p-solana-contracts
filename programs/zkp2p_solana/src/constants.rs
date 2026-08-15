@@ -16,6 +16,10 @@ pub const MIN_CONTROLLER_CHANGE_DELAY_SECONDS: i64 = 24 * 60 * 60;
 pub const MAX_RISK_WINDOW_SECONDS: i64 = 365 * 24 * 60 * 60;
 /// Maximum number of address groups configured for one deposit.
 pub const MAX_GROUPS_PER_DEPOSIT: usize = 10;
+/// Maximum read-only accounts exposed to one external whitelist resolver.
+pub const MAX_RESOLVER_ACCOUNTS: usize = 16;
+/// Maximum ECDSA witnesses that fit the canonical transaction budget with account compression.
+pub const MAX_WITNESSES: usize = 2;
 /// Maximum signed payment timestamp buffer: 48 hours in milliseconds.
 pub const MAX_TIMESTAMP_BUFFER_MS: u64 = 48 * 60 * 60 * 1_000;
 /// Sentinel maturity for pending dispute collateral.

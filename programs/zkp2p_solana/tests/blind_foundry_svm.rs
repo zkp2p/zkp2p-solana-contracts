@@ -2,6 +2,8 @@
 //! Foundry suite. This file intentionally uses only the public Anchor client
 //! API, IDL-described account layouts, and the built SBF artifact.
 
+#![allow(clippy::arithmetic_side_effects)]
+
 use anchor_lang::{
     solana_program::{program_option::COption, program_pack::Pack},
     AccountDeserialize, InstructionData, ToAccountMetas,
@@ -14,6 +16,7 @@ use litesvm::LiteSVM;
 use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
+use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use std::{path::PathBuf, str::FromStr};
@@ -46,6 +49,7 @@ struct Harness {
     owner: Keypair,
     mint: anchor_lang::prelude::Pubkey,
     owner_token: anchor_lang::prelude::Pubkey,
+    authority_token: anchor_lang::prelude::Pubkey,
     protocol: anchor_lang::prelude::Pubkey,
     escrow: anchor_lang::prelude::Pubkey,
     vault: anchor_lang::prelude::Pubkey,
@@ -60,12 +64,14 @@ impl Harness {
         let mint_authority = Keypair::new();
         let mint = Keypair::new().pubkey();
         let owner_token = Keypair::new().pubkey();
+        let authority_token = Keypair::new().pubkey();
 
         let mut svm = LiteSVM::new().with_default_programs();
         let program_path =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/deploy/zkp2p_solana.so");
         svm.add_program_from_file(program_id(), program_path)
             .expect("load public SBF artifact");
+        let program_data = authorize_program_upgrade(&mut svm, authority.pubkey());
 
         for signer in [&authority, &controller, &owner, &mint_authority] {
             svm.airdrop(&signer.pubkey(), 10_000_000_000)
@@ -84,6 +90,7 @@ impl Harness {
             owner.pubkey(),
             USER_STARTING_TOKENS,
         );
+        install_token_account(&mut svm, authority_token, mint, authority.pubkey(), 0);
 
         let program_id = program_id();
         let protocol = pda(&[b"protocol"], &program_id);
@@ -99,6 +106,8 @@ impl Harness {
         let initialize = instruction(
             z_accounts::InitializeProtocol {
                 authority: authority.pubkey(),
+                program: program_id,
+                program_data,
                 protocol,
                 stake_mint: mint,
                 escrow_config: escrow,
@@ -112,6 +121,7 @@ impl Harness {
             },
             z_instruction::InitializeProtocol {
                 args: InitializeProtocolArgs {
+                    domain_chain_id: 1,
                     protocol_fee: 10_000_000_000_000_000,
                     protocol_fee_recipient: authority.pubkey(),
                     intent_expiration_period: 3_600,
@@ -168,6 +178,7 @@ impl Harness {
             owner,
             mint,
             owner_token,
+            authority_token,
             protocol,
             escrow,
             vault,
@@ -394,6 +405,8 @@ fn protocol_singleton_reinitialization_fails_without_mutating_state() {
     let ix = instruction(
         z_accounts::InitializeProtocol {
             authority: h.authority.pubkey(),
+            program: program_id,
+            program_data: program_data_address(&program_id),
             protocol: h.protocol,
             stake_mint: h.mint,
             escrow_config: h.escrow,
@@ -407,6 +420,7 @@ fn protocol_singleton_reinitialization_fails_without_mutating_state() {
         },
         z_instruction::InitializeProtocol {
             args: InitializeProtocolArgs {
+                domain_chain_id: 1,
                 protocol_fee: 0,
                 protocol_fee_recipient: h.authority.pubkey(),
                 intent_expiration_period: 1,
@@ -421,6 +435,38 @@ fn protocol_singleton_reinitialization_fails_without_mutating_state() {
     assert_failed(send(&mut h.svm, &h.authority, vec![ix], &[]));
     assert_eq!(account_bytes(&h.svm, h.protocol), root_before);
     assert_eq!(account_bytes(&h.svm, h.vault), vault_before);
+}
+
+fn program_data_address(program_id: &anchor_lang::prelude::Pubkey) -> anchor_lang::prelude::Pubkey {
+    anchor_lang::prelude::Pubkey::find_program_address(
+        &[program_id.as_ref()],
+        &anchor_lang::solana_program::bpf_loader_upgradeable::ID,
+    )
+    .0
+}
+
+fn authorize_program_upgrade(
+    svm: &mut LiteSVM,
+    authority: anchor_lang::prelude::Pubkey,
+) -> anchor_lang::prelude::Pubkey {
+    let program_data = program_data_address(&program_id());
+    let mut account = svm.get_account(&program_data).expect("programdata account");
+    bincode::serialize_into(
+        account
+            .data
+            .get_mut(..UpgradeableLoaderState::size_of_programdata_metadata())
+            .expect("programdata metadata"),
+        &UpgradeableLoaderState::ProgramData {
+            slot: 0,
+            upgrade_authority_address: Some(
+                authority.to_string().parse().expect("interface authority"),
+            ),
+        },
+    )
+    .expect("set test upgrade authority");
+    svm.set_account(program_data, account)
+        .expect("update programdata account");
+    program_data
 }
 
 #[test]
@@ -802,10 +848,12 @@ fn escrow_create_add_remove_and_withdraw_track_exact_liquidity() {
     let withdraw = instruction(
         z_accounts::WithdrawDeposit {
             depositor: h.owner.pubkey(),
+            escrow_config: h.escrow,
             deposit: addresses.deposit,
             token_mint: h.mint,
             deposit_vault: addresses.vault,
             depositor_token: h.owner_token,
+            dust_recipient_token: h.authority_token,
             token_program: spl_token::ID,
         },
         z_instruction::WithdrawDeposit,
