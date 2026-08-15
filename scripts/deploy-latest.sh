@@ -53,11 +53,11 @@ else
   : "${SOLANA_PRIVATE_KEY:?SOLANA_PRIVATE_KEY or SOLANA_KEYPAIR_PATH is required}"
   temporary_directory="$(mktemp -d)"
   wallet_keypair="$temporary_directory/deployer.json"
-  cargo run --quiet -p zkp2p-deployer -- materialize-keypair --output "$wallet_keypair" >/dev/null
+  cargo run --quiet --manifest-path deployment/Cargo.toml -- materialize-keypair --output "$wallet_keypair" >/dev/null
 fi
 
 authority="$(solana-keygen pubkey "$wallet_keypair")"
-cargo run --quiet -p zkp2p-deployer -- plan --authority "$authority" >/dev/null
+cargo run --quiet --manifest-path deployment/Cargo.toml -- plan --authority "$authority" >/dev/null
 
 actual_genesis_hash="$(solana genesis-hash --url "$SOLANA_RPC_URL")"
 [[ "$actual_genesis_hash" == "$ZKP2P_EXPECTED_GENESIS_HASH" ]] || {
@@ -72,7 +72,7 @@ if [[ -z "$temporary_directory" ]]; then
   temporary_directory="$(mktemp -d)"
 fi
 preflight_receipt="$temporary_directory/preflight-receipt.json"
-cargo run --quiet -p zkp2p-deployer -- preflight \
+cargo run --quiet --manifest-path deployment/Cargo.toml -- preflight \
   --rpc-url "$SOLANA_RPC_URL" \
   --keypair "$wallet_keypair" \
   --receipt "$preflight_receipt" >/dev/null
@@ -83,7 +83,7 @@ if [[ "$program_state" == "initialized" ]]; then
   is_upgrade="true"
   program_id_argument="$program_id"
   pre_upgrade_receipt="$temporary_directory/pre-upgrade-receipt.json"
-  cargo run --quiet -p zkp2p-deployer -- verify \
+  cargo run --quiet --manifest-path deployment/Cargo.toml -- verify \
     --rpc-url "$SOLANA_RPC_URL" \
     --keypair "$wallet_keypair" \
     --receipt "$pre_upgrade_receipt" >/dev/null
@@ -169,7 +169,7 @@ else
   fi
   post_deployment_receipt="$temporary_directory/post-deployment-receipt.json"
 fi
-cargo run --quiet -p zkp2p-deployer -- apply \
+cargo run --quiet --manifest-path deployment/Cargo.toml -- apply \
   --rpc-url "$SOLANA_RPC_URL" \
   --keypair "$wallet_keypair" \
   --receipt "$post_deployment_receipt"

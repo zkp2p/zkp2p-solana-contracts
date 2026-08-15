@@ -93,13 +93,13 @@ solana program deploy \
   target/deploy/zkp2p_solana.so >/dev/null
 
 scripts/deploy-latest.sh --apply
-if cargo run --quiet -p zkp2p-deployer -- verify \
+if cargo run --quiet --manifest-path deployment/Cargo.toml -- verify \
   --rpc-url "$rpc_url" \
   --keypair "$wrong_authority" >/dev/null 2>&1; then
   echo "wrong upgrade authority unexpectedly verified" >&2
   exit 1
 fi
-cargo run --quiet -p zkp2p-deployer -- verify \
+cargo run --quiet --manifest-path deployment/Cargo.toml -- verify \
   --rpc-url "$rpc_url" \
   --keypair "$payer" >/dev/null
 
