@@ -102,6 +102,14 @@ fi
 cargo run --quiet --manifest-path deployment/Cargo.toml -- verify \
   --rpc-url "$rpc_url" \
   --keypair "$payer" >/dev/null
+export ZKP2P_PROTOCOL_FEE=20000000000000000
+if cargo run --quiet --manifest-path deployment/Cargo.toml -- verify \
+  --rpc-url "$rpc_url" \
+  --keypair "$payer" >/dev/null 2>&1; then
+  echo "mismatched expected configuration unexpectedly verified" >&2
+  exit 1
+fi
+unset ZKP2P_PROTOCOL_FEE
 
 python3 - "$receipt" <<'PY'
 import json

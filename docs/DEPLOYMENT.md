@@ -55,6 +55,9 @@ configuration before code changes and require the post-upgrade fingerprint to ma
 For an upgrade, set `ZKP2P_ROLLBACK_ARTIFACT` to a new protected file path. The script first verifies the current loader
 authority and complete compatible topology, refuses an existing rollback path, dumps the exact pre-upgrade executable,
 records its SHA-256, and only then changes code. Roll back by redeploying that artifact with the same upgrade authority.
+The supplied fee, fee recipient, expiry, intent cap, witness set/threshold, and controller delay are explicit expectations
+and must match current live state before any upgrade. Update those public inputs to the governance-approved current values;
+all other mutable governance state is fingerprinted before the upgrade and must remain byte-for-byte preserved afterward.
 
 ## Local end-to-end test
 

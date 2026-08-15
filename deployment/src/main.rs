@@ -397,6 +397,25 @@ fn run_rpc(args: RpcArgs, apply: bool) -> Result<(), Box<dyn Error>> {
             && dispute.domain_chain_id == protocol.domain_chain_id,
         "dispute wiring",
     )?;
+    require_state(
+        escrow.intent_expiration_period == config.intent_expiration_period
+            && escrow.max_intents_per_deposit == config.max_intents_per_deposit,
+        "expected escrow configuration",
+    )?;
+    require_state(
+        verifier.required_signatures == config.required_signatures
+            && verifier.witnesses == config.initial_witnesses,
+        "expected verifier configuration",
+    )?;
+    require_state(
+        orchestrator.protocol_fee == config.protocol_fee
+            && orchestrator.protocol_fee_recipient == config.protocol_fee_recipient,
+        "expected orchestrator configuration",
+    )?;
+    require_state(
+        stake_vault.controller_change_delay == config.controller_change_delay,
+        "expected controller delay",
+    )?;
     if initialization_signature.is_some() {
         require_state(
             protocol.authority == config.authority,
@@ -409,27 +428,20 @@ fn run_rpc(args: RpcArgs, apply: bool) -> Result<(), Box<dyn Error>> {
         require_state(
             escrow.dust_recipient == config.protocol_fee_recipient
                 && escrow.dust_threshold == 0
-                && escrow.intent_expiration_period == config.intent_expiration_period
-                && escrow.max_intents_per_deposit == config.max_intents_per_deposit
                 && !escrow.paused,
             "initial escrow defaults",
         )?;
         require_state(
-            verifier.required_signatures == config.required_signatures
-                && verifier.witnesses == config.initial_witnesses
-                && verifier.payment_methods.is_empty(),
+            verifier.payment_methods.is_empty(),
             "initial verifier defaults",
         )?;
         require_state(
-            orchestrator.protocol_fee == config.protocol_fee
-                && orchestrator.protocol_fee_recipient == config.protocol_fee_recipient
-                && orchestrator.lifecycle_policy == LifecyclePolicy::WhitelistAndDispute
+            orchestrator.lifecycle_policy == LifecyclePolicy::WhitelistAndDispute
                 && !orchestrator.paused,
             "initial orchestrator defaults",
         )?;
         require_state(
-            stake_vault.controller_change_delay == config.controller_change_delay
-                && stake_vault.controller == topology.dispute_config
+            stake_vault.controller == topology.dispute_config
                 && stake_vault.pending_controller.is_none(),
             "initial StakeVault defaults",
         )?;
