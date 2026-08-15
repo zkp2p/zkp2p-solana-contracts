@@ -15,7 +15,7 @@ use zkp2p_solana::{
         RATE_MANAGER_CONFIG_SEED, STAKE_VAULT_CONFIG_SEED, VERIFIER_CONFIG_SEED,
         WHITELIST_CONFIG_SEED,
     },
-    InitializeProtocolArgs, ProtocolConfig,
+    DisputeConfig, InitializeProtocolArgs, OrchestratorConfig, ProtocolConfig, VerifierConfig,
 };
 
 use super::common::{address, authorize_program_upgrade, program_binary};
@@ -73,6 +73,7 @@ fn initializes_only_latest_components_and_transfers_governance_two_step() {
         authority: address(authority.pubkey().to_bytes()),
         program: zkp2p_solana::ID,
         program_data,
+        slot_hashes: solana_program::sysvar::slot_hashes::ID,
         protocol,
         stake_mint: anchor_lang::prelude::Pubkey::new_from_array(mint.to_bytes()),
         escrow_config: escrow,
@@ -86,7 +87,6 @@ fn initializes_only_latest_components_and_transfers_governance_two_step() {
     };
     let initialize_data = zkp2p_solana::instruction::InitializeProtocol {
         args: InitializeProtocolArgs {
-            domain_chain_id: 1,
             protocol_fee: 10_000_000_000_000_000,
             protocol_fee_recipient: anchor_lang::prelude::Pubkey::new_from_array(
                 authority.pubkey().to_bytes(),
@@ -99,6 +99,20 @@ fn initializes_only_latest_components_and_transfers_governance_two_step() {
         },
     }
     .data();
+    let mut substituted_sysvar_metas = accounts.to_account_metas(None);
+    substituted_sysvar_metas
+        .iter_mut()
+        .find(|meta| meta.pubkey == solana_program::sysvar::slot_hashes::ID)
+        .expect("slot hashes meta")
+        .pubkey = anchor_lang::system_program::ID;
+    let substituted_sysvar_initialize = Instruction {
+        program_id: address(zkp2p_solana::ID.to_bytes()),
+        accounts: substituted_sysvar_metas,
+        data: initialize_data.clone(),
+    };
+    assert!(send(&mut svm, &authority, substituted_sysvar_initialize).is_err());
+    assert!(svm.get_account(&address(protocol.to_bytes())).is_none());
+
     let mut attacker_metas = accounts.to_account_metas(None);
     attacker_metas
         .first_mut()
@@ -137,6 +151,34 @@ fn initializes_only_latest_components_and_transfers_governance_two_step() {
     let mut data = protocol_account.data.as_slice();
     let root = ProtocolConfig::try_deserialize(&mut data).expect("decode protocol");
     assert_eq!(root.authority.to_bytes(), authority.pubkey().to_bytes());
+    assert_ne!(root.domain_seed, [0; 32]);
+    let expected_domain = solana_keccak_hasher::hashv(&[
+        zkp2p_solana::constants::DEPLOYMENT_DOMAIN_PREFIX,
+        zkp2p_solana::ID.as_ref(),
+        &root.domain_seed,
+    ])
+    .to_bytes();
+    assert_eq!(root.domain_chain_id, expected_domain);
+    let verifier_account = svm
+        .get_account(&address(verifier.to_bytes()))
+        .expect("verifier account");
+    let mut verifier_data = verifier_account.data.as_slice();
+    let verifier_config =
+        VerifierConfig::try_deserialize(&mut verifier_data).expect("decode verifier");
+    let orchestrator_account = svm
+        .get_account(&address(orchestrator.to_bytes()))
+        .expect("orchestrator account");
+    let mut orchestrator_data = orchestrator_account.data.as_slice();
+    let orchestrator_config =
+        OrchestratorConfig::try_deserialize(&mut orchestrator_data).expect("decode orchestrator");
+    let dispute_account = svm
+        .get_account(&address(dispute.to_bytes()))
+        .expect("dispute account");
+    let mut dispute_data = dispute_account.data.as_slice();
+    let dispute_config = DisputeConfig::try_deserialize(&mut dispute_data).expect("decode dispute");
+    assert_eq!(verifier_config.domain_chain_id, expected_domain);
+    assert_eq!(orchestrator_config.domain_chain_id, expected_domain);
+    assert_eq!(dispute_config.domain_chain_id, expected_domain);
 
     let pending = Keypair::new();
     svm.airdrop(&pending.pubkey(), 1_000_000_000)

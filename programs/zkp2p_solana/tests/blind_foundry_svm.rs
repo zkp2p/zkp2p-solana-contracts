@@ -49,7 +49,6 @@ struct Harness {
     owner: Keypair,
     mint: anchor_lang::prelude::Pubkey,
     owner_token: anchor_lang::prelude::Pubkey,
-    authority_token: anchor_lang::prelude::Pubkey,
     protocol: anchor_lang::prelude::Pubkey,
     escrow: anchor_lang::prelude::Pubkey,
     vault: anchor_lang::prelude::Pubkey,
@@ -108,6 +107,7 @@ impl Harness {
                 authority: authority.pubkey(),
                 program: program_id,
                 program_data,
+                slot_hashes: solana_program::sysvar::slot_hashes::ID,
                 protocol,
                 stake_mint: mint,
                 escrow_config: escrow,
@@ -121,7 +121,6 @@ impl Harness {
             },
             z_instruction::InitializeProtocol {
                 args: InitializeProtocolArgs {
-                    domain_chain_id: 1,
                     protocol_fee: 10_000_000_000_000_000,
                     protocol_fee_recipient: authority.pubkey(),
                     intent_expiration_period: 3_600,
@@ -178,7 +177,6 @@ impl Harness {
             owner,
             mint,
             owner_token,
-            authority_token,
             protocol,
             escrow,
             vault,
@@ -407,6 +405,7 @@ fn protocol_singleton_reinitialization_fails_without_mutating_state() {
             authority: h.authority.pubkey(),
             program: program_id,
             program_data: program_data_address(&program_id),
+            slot_hashes: solana_program::sysvar::slot_hashes::ID,
             protocol: h.protocol,
             stake_mint: h.mint,
             escrow_config: h.escrow,
@@ -420,7 +419,6 @@ fn protocol_singleton_reinitialization_fails_without_mutating_state() {
         },
         z_instruction::InitializeProtocol {
             args: InitializeProtocolArgs {
-                domain_chain_id: 1,
                 protocol_fee: 0,
                 protocol_fee_recipient: h.authority.pubkey(),
                 intent_expiration_period: 1,
@@ -853,8 +851,8 @@ fn escrow_create_add_remove_and_withdraw_track_exact_liquidity() {
             token_mint: h.mint,
             deposit_vault: addresses.vault,
             depositor_token: h.owner_token,
-            dust_recipient_token: h.authority_token,
             token_program: spl_token::ID,
+            dust_recipient_token: None,
         },
         z_instruction::WithdrawDeposit,
     );

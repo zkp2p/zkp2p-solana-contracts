@@ -18,7 +18,7 @@ use zkp2p_solana::{
     derive_intent_hash, dispute_attestation_digest, payment_attestation_digest, AmountRange,
     ClaimBalance, CreateDepositArgs, DisputeAttestation, DisputeDetails, FulfillIntentArgs, Intent,
     IntentSnapshot, PaymentAttestation, PaymentDetails, PrepareDisputeArgs, SignalIntentArgs,
-    SubmitDisputeArgs,
+    SubmitDisputeArgs, VerifierConfig,
 };
 
 fn decode<T: AccountDeserialize>(fixture: &Fixture, key: anchor_lang::prelude::Pubkey) -> T {
@@ -571,8 +571,14 @@ fn threshold_payment_fulfillment_binds_nullifiers_and_resolves_dispute_claim() {
         .serialize(&mut payment_payload)
         .expect("serialize snapshot");
     let data_hash = solana_keccak_hasher::hash(&payment_payload).to_bytes();
-    let payment_digest =
-        payment_attestation_digest(covered.fixture.verifier, 1, intent_hash, 100, data_hash);
+    let verifier_config: VerifierConfig = decode(&covered.fixture, covered.fixture.verifier);
+    let payment_digest = payment_attestation_digest(
+        covered.fixture.verifier,
+        verifier_config.domain_chain_id,
+        intent_hash,
+        100,
+        data_hash,
+    );
     let attestation = PaymentAttestation {
         intent_hash,
         release_amount: 100,
@@ -678,7 +684,7 @@ fn threshold_payment_fulfillment_binds_nullifiers_and_resolves_dispute_claim() {
     let dispute_data_hash = solana_keccak_hasher::hash(&dispute_payload).to_bytes();
     let dispute_digest = dispute_attestation_digest(
         covered.fixture.dispute_config,
-        1,
+        verifier_config.domain_chain_id,
         intent_hash,
         dispute_data_hash,
     );

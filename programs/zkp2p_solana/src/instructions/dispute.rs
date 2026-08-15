@@ -742,20 +742,18 @@ fn dispute_data_hash(details: &DisputeDetails) -> [u8; 32] {
 /// Returns the EIP-712 digest for Solana dispute verifier evidence.
 pub fn dispute_attestation_digest(
     dispute_config: Pubkey,
-    domain_chain_id: u64,
+    domain_chain_id: [u8; 32],
     intent_hash: [u8; 32],
     data_hash: [u8; 32],
 ) -> [u8; 32] {
     let account_hash = keccak::hash(dispute_config.as_ref()).to_bytes();
     let mut address_word = [0_u8; 32];
     address_word[12..].copy_from_slice(&account_hash[12..]);
-    let mut chain_id = [0_u8; 32];
-    chain_id[24..].copy_from_slice(&domain_chain_id.to_be_bytes());
     let domain_separator = keccak::hashv(&[
         &EIP712_DOMAIN_TYPEHASH,
         &DISPUTE_VERIFIER_NAME_HASH,
         &EIP712_VERSION_ONE_HASH,
-        &chain_id,
+        &domain_chain_id,
         &address_word,
     ])
     .to_bytes();
@@ -783,22 +781,22 @@ mod tests {
     #[test]
     fn dispute_digest_is_bound_to_domain_intent_and_payload() {
         let config = Pubkey::new_unique();
-        let baseline = dispute_attestation_digest(config, 1, [1; 32], [2; 32]);
+        let baseline = dispute_attestation_digest(config, [1; 32], [1; 32], [2; 32]);
         assert_ne!(
             baseline,
-            dispute_attestation_digest(Pubkey::new_unique(), 1, [1; 32], [2; 32])
+            dispute_attestation_digest(Pubkey::new_unique(), [1; 32], [1; 32], [2; 32])
         );
         assert_ne!(
             baseline,
-            dispute_attestation_digest(config, 1, [3; 32], [2; 32])
+            dispute_attestation_digest(config, [1; 32], [3; 32], [2; 32])
         );
         assert_ne!(
             baseline,
-            dispute_attestation_digest(config, 1, [1; 32], [4; 32])
+            dispute_attestation_digest(config, [1; 32], [1; 32], [4; 32])
         );
         assert_ne!(
             baseline,
-            dispute_attestation_digest(config, 2, [1; 32], [2; 32])
+            dispute_attestation_digest(config, [2; 32], [1; 32], [2; 32])
         );
     }
 

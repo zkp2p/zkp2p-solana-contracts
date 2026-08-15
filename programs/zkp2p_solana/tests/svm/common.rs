@@ -239,6 +239,7 @@ impl Fixture {
                 authority: anchor_pubkey(fixture.authority.pubkey()),
                 program: zkp2p_solana::ID,
                 program_data,
+                slot_hashes: solana_program::sysvar::slot_hashes::ID,
                 protocol: fixture.protocol,
                 stake_mint: fixture.mint,
                 escrow_config: fixture.escrow,
@@ -253,7 +254,6 @@ impl Fixture {
             .to_account_metas(None),
             data: zkp2p_solana::instruction::InitializeProtocol {
                 args: InitializeProtocolArgs {
-                    domain_chain_id: 1,
                     protocol_fee: 10_000_000_000_000_000,
                     protocol_fee_recipient: anchor_pubkey(fixture.authority.pubkey()),
                     intent_expiration_period: 1_800,

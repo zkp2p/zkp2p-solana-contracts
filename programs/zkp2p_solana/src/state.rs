@@ -12,6 +12,12 @@ pub struct ProtocolConfig {
     pub pending_authority: Option<Pubkey>,
     /// Schema version. Only the latest version is supported.
     pub version: u8,
+    /// Slot selected from the canonical SlotHashes sysvar during initialization.
+    pub domain_seed_slot: u64,
+    /// Runtime-authenticated slot hash used to derive the immutable signature domain.
+    pub domain_seed: [u8; 32],
+    /// Full-width deployment domain derived from the program and runtime seed.
+    pub domain_chain_id: [u8; 32],
     /// PDA bump.
     pub bump: u8,
 }
@@ -19,8 +25,6 @@ pub struct ProtocolConfig {
 /// Initializes every logical component against one canonical stake mint.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct InitializeProtocolArgs {
-    /// Immutable nonzero deployment-domain identifier used by every signature scheme.
-    pub domain_chain_id: u64,
     /// Protocol fee at 1e18 precision.
     pub protocol_fee: u128,
     /// Recipient of protocol fees.
@@ -83,7 +87,7 @@ pub struct OrchestratorConfig {
     /// Unified verifier component used by this orchestrator.
     pub verifier_config: Pubkey,
     /// Immutable nonzero deployment-domain identifier for native gating signatures.
-    pub domain_chain_id: u64,
+    pub domain_chain_id: [u8; 32],
     /// Fee paid from each released amount at 1e18 precision.
     pub protocol_fee: u128,
     /// Recipient of protocol fees.
@@ -669,7 +673,7 @@ pub struct VerifierConfig {
     /// Protocol root.
     pub protocol: Pubkey,
     /// Immutable nonzero deployment-domain identifier for EIP-712 evidence.
-    pub domain_chain_id: u64,
+    pub domain_chain_id: [u8; 32],
     /// Number of unique authorized signatures required.
     pub required_signatures: u8,
     /// Authorized Ethereum witness addresses.
@@ -701,7 +705,7 @@ pub struct DisputeConfig {
     /// Protocol root.
     pub protocol: Pubkey,
     /// Immutable nonzero deployment-domain identifier for EIP-712 evidence.
-    pub domain_chain_id: u64,
+    pub domain_chain_id: [u8; 32],
     /// Stake-vault component.
     pub stake_vault: Pubkey,
     /// Unified verifier component providing payment bindings.

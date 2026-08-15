@@ -155,4 +155,7 @@ pub enum Zkp2pError {
     /// Exact SPL token balance delta was not observed.
     #[msg("token balance delta is not exact")]
     InvalidTokenBalanceDelta,
+    /// Canonical SlotHashes state cannot yield a safe deployment-domain seed.
+    #[msg("deployment domain is not authenticated by recent cluster state")]
+    InvalidDeploymentDomain,
 }

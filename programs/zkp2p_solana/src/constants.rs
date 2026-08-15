@@ -24,6 +24,8 @@ pub const MAX_WITNESSES: usize = 2;
 pub const MAX_TIMESTAMP_BUFFER_MS: u64 = 48 * 60 * 60 * 1_000;
 /// Sentinel maturity for pending dispute collateral.
 pub const NEVER_MATURES: i64 = i64::MAX;
+/// Versioned prefix for domains derived from authenticated recent cluster state.
+pub const DEPLOYMENT_DOMAIN_PREFIX: &[u8] = b"ZKP2P_SOLANA_DEPLOYMENT_DOMAIN_V1";
 
 /// Keccak-256 of the canonical EIP-712 domain schema.
 pub const EIP712_DOMAIN_TYPEHASH: [u8; 32] = [

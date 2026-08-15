@@ -383,8 +383,8 @@ fn deposit_custody_configuration_whitelist_and_dispute_setting_round_trip() {
             token_mint: fixture.mint,
             deposit_vault,
             depositor_token,
-            dust_recipient_token,
             token_program: anchor_spl::token::ID,
+            dust_recipient_token: Some(dust_recipient_token),
         },
         zkp2p_solana::instruction::WithdrawDeposit {},
     );
@@ -493,8 +493,8 @@ fn above_threshold_dust_never_blocks_paused_principal_exit() {
             token_mint: fixture.mint,
             deposit_vault,
             depositor_token,
-            dust_recipient_token,
             token_program: anchor_spl::token::ID,
+            dust_recipient_token: None,
         },
         zkp2p_solana::instruction::WithdrawDeposit {},
     );

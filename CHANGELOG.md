@@ -48,8 +48,9 @@ All notable changes are recorded here. Optimization entries must include before/
 ### Differences from Solidity
 
 - Consolidate the Solidity contract graph into one SVM program with separate canonical configuration PDAs.
-- Use a nonzero, genesis-hash-derived deployment ID plus a config-PDA-derived 20-byte verifier domain, and Borsh rather than
-  ABI encoding for signed payload commitments. Attestation services must generate cluster-specific Solana digests.
+- Use a full-width nonzero deployment ID derived on-chain from the program ID and newest authenticated SlotHashes entry,
+  plus a config-PDA-derived 20-byte verifier address. Callers cannot choose the signature domain; attestation services must
+  read the initialized cluster-specific domain and use Borsh rather than ABI for native signed payload commitments.
 - Replace ECDSA deposit-gating signatures with Solana-native Ed25519 precompile verification.
 - Fail closed on a missing/malformed delegated rate; the EVM-only reverting-manager fallback is not reproduced.
 - Restrict canonical custody to the legacy SPL Token program and reject Token-2022 mints whose extension semantics can

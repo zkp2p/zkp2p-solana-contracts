@@ -344,7 +344,7 @@ fn is_low_s(signature: &[u8; 64]) -> bool {
 /// Returns the EIP-712 digest for the Solana verifier domain.
 pub fn payment_attestation_digest(
     verifier_key: Pubkey,
-    domain_chain_id: u64,
+    domain_chain_id: [u8; 32],
     intent_hash: [u8; 32],
     release_amount: u64,
     data_hash: [u8; 32],
@@ -355,15 +355,11 @@ pub fn payment_attestation_digest(
     {
         destination.copy_from_slice(source);
     }
-    let mut chain_id = [0_u8; 32];
-    if let Some(destination) = chain_id.get_mut(24..) {
-        destination.copy_from_slice(&domain_chain_id.to_be_bytes());
-    }
     let domain_separator = keccak::hashv(&[
         &EIP712_DOMAIN_TYPEHASH,
         &PAYMENT_VERIFIER_NAME_HASH,
         &EIP712_VERSION_ONE_HASH,
-        &chain_id,
+        &domain_chain_id,
         &address_word,
     ])
     .to_bytes();
@@ -421,8 +417,8 @@ mod tests {
     #[test]
     fn digest_is_domain_bound() {
         let verifier = Pubkey::new_unique();
-        let first = payment_attestation_digest(verifier, 1, [1; 32], 7, [2; 32]);
-        let second = payment_attestation_digest(verifier, 2, [1; 32], 7, [2; 32]);
+        let first = payment_attestation_digest(verifier, [1; 32], [1; 32], 7, [2; 32]);
+        let second = payment_attestation_digest(verifier, [2; 32], [1; 32], 7, [2; 32]);
         assert_ne!(first, second);
     }
 

@@ -32,7 +32,8 @@ ownership. Token movement rejects transfer-tax or otherwise non-exact balance de
 integer math with Solidity-equivalent floor/ceiling semantics.
 
 Payment attestations retain the Solidity EIP-712 struct schemas and Ethereum `r || s || v` witnesses. The SVM domain uses
-a nonzero deployment ID deterministically derived from the authenticated cluster genesis hash and the last 20 bytes of
+a full-width nonzero deployment ID that initialization derives on-chain from the program ID and newest hash in the
+fixed-address SlotHashes sysvar; callers cannot supply the domain. EIP-712 uses the last 20 bytes of
 `keccak256(config PDA)` as its verifying-contract value. Canonical payload commitments use Borsh instead of Solidity ABI
 encoding. Intent gating uses Solana's native Ed25519 precompile and the instructions sysvar.
 

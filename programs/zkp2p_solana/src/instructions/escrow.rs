@@ -377,16 +377,16 @@ pub struct WithdrawDeposit<'info> {
     /// Owner destination account.
     #[account(mut, token::mint = token_mint, token::authority = depositor, token::token_program = token_program)]
     pub depositor_token: Box<InterfaceAccount<'info, TokenAccount>>,
-    /// Configured dust recipient's token account for this mint.
+    /// SPL Token or Token-2022 program.
+    pub token_program: Interface<'info, TokenInterface>,
+    /// Configured dust recipient's token account, required only for a nonzero terminal sweep.
     #[account(
         mut,
         token::mint = token_mint,
         token::authority = escrow_config.dust_recipient,
         token::token_program = token_program
     )]
-    pub dust_recipient_token: Box<InterfaceAccount<'info, TokenAccount>>,
-    /// SPL Token or Token-2022 program.
-    pub token_program: Interface<'info, TokenInterface>,
+    pub dust_recipient_token: Option<Box<InterfaceAccount<'info, TokenAccount>>>,
 }
 
 /// Returns all available principal and closes liability-free, non-retained deposits.
@@ -416,10 +416,15 @@ pub fn handle_withdraw_deposit(ctx: Context<WithdrawDeposit>) -> Result<()> {
             return Ok(());
         }
         if residual > 0 {
+            let dust_recipient_token = ctx
+                .accounts
+                .dust_recipient_token
+                .as_deref()
+                .ok_or(Zkp2pError::DepositNotFound)?;
             transfer_from_deposit(
                 &ctx.accounts.deposit,
                 &ctx.accounts.deposit_vault,
-                &ctx.accounts.dust_recipient_token,
+                dust_recipient_token,
                 &ctx.accounts.token_mint,
                 &ctx.accounts.token_program,
                 residual,

@@ -136,7 +136,10 @@ with destination.open("wb") as raw:
                     with path.open("rb") as source:
                         archive.addfile(info, source)
 PY
-shasum -a 256 "$ARCHIVE_PATH" > "$ARCHIVE_PATH.sha256"
+(
+  cd "$DIST_DIR"
+  shasum -a 256 "$ARCHIVE_BASENAME" > "$ARCHIVE_BASENAME.sha256"
+)
 "$ROOT_DIR/scripts/verify-release-package.sh" "$ARCHIVE_PATH"
 printf 'release_package=%s\n' "$ARCHIVE_PATH"
 printf 'release_checksum=%s\n' "$ARCHIVE_PATH.sha256"
