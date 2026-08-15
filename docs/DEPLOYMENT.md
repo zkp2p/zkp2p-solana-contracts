@@ -11,8 +11,10 @@ must independently confirm the mint address and issuer policy for the target env
 ## Preflight and secret handling
 
 Copy the public variables from `deployments/staging.env.example` into the deployment environment. Supply the
-base58-encoded 64-byte `SOLANA_PRIVATE_KEY` through the secret manager; the script never prints it. It materializes the key
-only inside a mode-0600 temporary file, unlinks that file on exit, and refuses to overwrite an existing file.
+base58-encoded 64-byte `SOLANA_PRIVATE_KEY` through the secret manager; the script never prints it. The wrapper removes the
+secret from its environment before invoking any child process, injects it only into the already-built key materializer,
+then clears its private shell copy. It materializes the key only inside a mode-0600 temporary file, unlinks that file on
+exit, and refuses to overwrite an existing file.
 For local testing only, `SOLANA_KEYPAIR_PATH` may point at an ephemeral JSON keypair.
 `ZKP2P_EXPECTED_GENESIS_HASH` must be the independently verified target-cluster genesis hash. Both the shell preflight
 and the deployer compare it to RPC state before any write, and the public receipt records the actual hash and cluster label.
@@ -48,6 +50,10 @@ Solana CLI preflight remains enabled. The script deploys/upgrades the program, i
 reads and deserializes all eight accounts. It fails unless every authority, mint, fee, witness threshold, component link,
 lifecycle policy, delay, and initial pause state is exact. The optional receipt contains only public addresses,
 configuration, and transaction signatures.
+The receipt destination must be a new path whose parent directory already exists and is writable. The wrapper checks that
+before the first cluster write, then publishes the verified receipt with an exclusive atomic link only after every
+post-deploy gate succeeds. Use a unique timestamped or release-specific receipt path for every later upgrade; never reuse
+`deployments/staging-receipt.json`.
 If an earlier first deployment left an executable but uninitialized program, preflight verifies its ProgramData and upgrade
 authority and safely resumes initialization; it is not misclassified as a live upgrade. Live upgrades snapshot governance
 configuration before code changes and require the post-upgrade fingerprint to match.

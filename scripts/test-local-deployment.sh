@@ -20,10 +20,66 @@ payer="$temporary_directory/payer.json"
 wrong_authority="$temporary_directory/wrong-authority.json"
 mint="$temporary_directory/mint.json"
 receipt="$temporary_directory/receipt.json"
+failed_receipt="$temporary_directory/failed-receipt.json"
+receipt_source="$temporary_directory/receipt-source.json"
+
+# shellcheck source=../.github/scripts/finalize-deployment-receipt.sh
+source "$repo_root/.github/scripts/finalize-deployment-receipt.sh"
+printf '{"status":"verified"}\n' >"$receipt_source"
+printf '{"status":"old"}\n' >"$failed_receipt"
+if preflight_deployment_receipt_destination "$failed_receipt" >/dev/null 2>&1; then
+  echo "existing deployment receipt unexpectedly passed preflight" >&2
+  exit 1
+fi
+/bin/unlink "$failed_receipt"
+if finalize_deployment_receipt "$receipt_source" "$failed_receipt" before after >/dev/null 2>&1; then
+  echo "mismatched configuration fingerprint unexpectedly published a receipt" >&2
+  exit 1
+fi
+[[ ! -e "$failed_receipt" ]] || {
+  echo "failed preservation check left a verified receipt" >&2
+  exit 1
+}
 
 solana-keygen new --no-bip39-passphrase --silent --force --outfile "$payer"
 solana-keygen new --no-bip39-passphrase --silent --force --outfile "$wrong_authority"
 solana-keygen new --no-bip39-passphrase --silent --force --outfile "$mint"
+cargo build --quiet --manifest-path deployment/Cargo.toml --bin zkp2p-deployer
+# shellcheck source=../.github/scripts/materialize-keypair.sh
+source "$repo_root/.github/scripts/materialize-keypair.sh"
+materialized_payer="$temporary_directory/materialized-payer.json"
+export SOLANA_PRIVATE_KEY
+SOLANA_PRIVATE_KEY="$(python3 - "$payer" <<'PY'
+import json
+import sys
+
+alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+with open(sys.argv[1], encoding="utf-8") as keypair_file:
+    raw = bytes(json.load(keypair_file))
+value = int.from_bytes(raw, "big")
+encoded = ""
+while value:
+    value, remainder = divmod(value, 58)
+    encoded = alphabet[remainder] + encoded
+leading_zeroes = len(raw) - len(raw.lstrip(b"\0"))
+print(alphabet[0] * leading_zeroes + encoded)
+PY
+)"
+local_test_private_key="$SOLANA_PRIVATE_KEY"
+unset SOLANA_PRIVATE_KEY
+materialize_solana_keypair \
+  "$repo_root/deployment/target/debug/zkp2p-deployer" \
+  "$materialized_payer" \
+  "$local_test_private_key"
+local_test_private_key=""
+if env | grep -q '^SOLANA_PRIVATE_KEY='; then
+  echo "materialized private key leaked to a later subprocess" >&2
+  exit 1
+fi
+[[ "$(solana-keygen pubkey "$materialized_payer")" == "$(solana-keygen pubkey "$payer")" ]] || {
+  echo "isolated key materialization changed the payer" >&2
+  exit 1
+}
 solana-test-validator \
   --ledger "$temporary_directory/ledger" \
   --rpc-port 18999 \

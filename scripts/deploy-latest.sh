@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+solana_private_key="${SOLANA_PRIVATE_KEY-}"
+unset SOLANA_PRIVATE_KEY
+
 usage() {
   echo "usage: $0 [--dry-run|--apply] [--skip-build]"
 }
@@ -20,6 +23,10 @@ done
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+# shellcheck source=../.github/scripts/finalize-deployment-receipt.sh
+source "$repo_root/.github/scripts/finalize-deployment-receipt.sh"
+# shellcheck source=../.github/scripts/materialize-keypair.sh
+source "$repo_root/.github/scripts/materialize-keypair.sh"
 
 : "${SOLANA_RPC_URL:?SOLANA_RPC_URL is required}"
 : "${ZKP2P_CLUSTER_NAME:?ZKP2P_CLUSTER_NAME is required}"
@@ -27,6 +34,9 @@ cd "$repo_root"
 : "${ZKP2P_STAKE_MINT:?ZKP2P_STAKE_MINT is required}"
 : "${ZKP2P_PROTOCOL_FEE_RECIPIENT:?ZKP2P_PROTOCOL_FEE_RECIPIENT is required}"
 : "${ZKP2P_INITIAL_WITNESSES:?ZKP2P_INITIAL_WITNESSES is required}"
+if [[ -n "${ZKP2P_DEPLOYMENT_RECEIPT:-}" ]]; then
+  preflight_deployment_receipt_destination "$ZKP2P_DEPLOYMENT_RECEIPT"
+fi
 
 program_id="5TJD8vLWqAy4hEZLnsxuFKCDnuKXkfQQWpdnqNKYoA1x"
 program_keypair="${ZKP2P_PROGRAM_KEYPAIR:-$repo_root/target/deploy/zkp2p_solana-keypair.json}"
@@ -42,19 +52,26 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ "$skip_build" != "true" ]]; then
-  anchor build --no-idl
+  env -u SOLANA_PRIVATE_KEY anchor build --no-idl
 fi
 [[ -f "$program_binary" ]] || { echo "missing SBF artifact: $program_binary" >&2; exit 1; }
 
 if [[ -n "${SOLANA_KEYPAIR_PATH:-}" ]]; then
   wallet_keypair="$SOLANA_KEYPAIR_PATH"
   [[ -f "$wallet_keypair" ]] || { echo "SOLANA_KEYPAIR_PATH does not exist" >&2; exit 1; }
+  unset SOLANA_PRIVATE_KEY
 else
-  : "${SOLANA_PRIVATE_KEY:?SOLANA_PRIVATE_KEY or SOLANA_KEYPAIR_PATH is required}"
+  [[ -n "$solana_private_key" ]] || {
+    echo "SOLANA_PRIVATE_KEY or SOLANA_KEYPAIR_PATH is required" >&2
+    exit 1
+  }
   temporary_directory="$(mktemp -d)"
   wallet_keypair="$temporary_directory/deployer.json"
-  cargo run --quiet --manifest-path deployment/Cargo.toml -- materialize-keypair --output "$wallet_keypair" >/dev/null
+  env -u SOLANA_PRIVATE_KEY cargo build --quiet --manifest-path deployment/Cargo.toml --bin zkp2p-deployer
+  deployer_binary="$repo_root/deployment/target/debug/zkp2p-deployer"
+  materialize_solana_keypair "$deployer_binary" "$wallet_keypair" "$solana_private_key"
 fi
+solana_private_key=""
 
 authority="$(solana-keygen pubkey "$wallet_keypair")"
 cargo run --quiet --manifest-path deployment/Cargo.toml -- plan --authority "$authority" >/dev/null
@@ -161,14 +178,10 @@ solana program deploy \
   --use-rpc \
   "$program_binary"
 
-if [[ -n "${ZKP2P_DEPLOYMENT_RECEIPT:-}" ]]; then
-  post_deployment_receipt="$ZKP2P_DEPLOYMENT_RECEIPT"
-else
-  if [[ -z "$temporary_directory" ]]; then
-    temporary_directory="$(mktemp -d)"
-  fi
-  post_deployment_receipt="$temporary_directory/post-deployment-receipt.json"
+if [[ -z "$temporary_directory" ]]; then
+  temporary_directory="$(mktemp -d)"
 fi
+post_deployment_receipt="$temporary_directory/post-deployment-receipt.json"
 cargo run --quiet --manifest-path deployment/Cargo.toml -- apply \
   --rpc-url "$SOLANA_RPC_URL" \
   --keypair "$wallet_keypair" \
@@ -176,12 +189,24 @@ cargo run --quiet --manifest-path deployment/Cargo.toml -- apply \
 
 if [[ "$is_upgrade" == "true" ]]; then
   post_deployment_configuration_fingerprint="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["configuration_fingerprint"])' "$post_deployment_receipt")"
-  [[ "$post_deployment_configuration_fingerprint" == "$pre_upgrade_configuration_fingerprint" ]] || {
-    echo "upgrade changed mutable protocol configuration; redeploy the recorded rollback artifact" >&2
-    exit 1
-  }
-  echo "configuration_preserved=true"
+else
+  pre_upgrade_configuration_fingerprint=""
+  post_deployment_configuration_fingerprint=""
 fi
 
 solana program show --url "$SOLANA_RPC_URL" --keypair "$wallet_keypair" "$program_id" >/dev/null
+if [[ -n "${ZKP2P_DEPLOYMENT_RECEIPT:-}" ]]; then
+  finalize_deployment_receipt \
+    "$post_deployment_receipt" \
+    "$ZKP2P_DEPLOYMENT_RECEIPT" \
+    "$pre_upgrade_configuration_fingerprint" \
+    "$post_deployment_configuration_fingerprint"
+  echo "deployment_receipt_published=true path=$ZKP2P_DEPLOYMENT_RECEIPT"
+elif [[ "$is_upgrade" == "true" && "$post_deployment_configuration_fingerprint" != "$pre_upgrade_configuration_fingerprint" ]]; then
+  echo "upgrade changed mutable protocol configuration; redeploy the recorded rollback artifact" >&2
+  exit 1
+fi
+if [[ "$is_upgrade" == "true" ]]; then
+  echo "configuration_preserved=true"
+fi
 echo "deployment=verified program=$program_id"
