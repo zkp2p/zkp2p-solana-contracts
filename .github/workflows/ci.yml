@@ -54,6 +54,8 @@ jobs:
         run: |
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
+          bash -n scripts/*.sh .github/scripts/*.sh
+          cargo test -p zkp2p-deployer --all-targets
           cargo test --workspace --lib
           cargo test -p zkp2p-solana --test fuzz_invariants
           mkdir -p target/coverage

@@ -1,0 +1,27 @@
+[package]
+name = "zkp2p-deployer"
+version = "0.1.0"
+description = "Latest-only deployment and topology verifier for ZKP2P Solana"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+anchor-client.workspace = true
+anchor-lang.workspace = true
+anchor-spl.workspace = true
+bincode.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+solana-keypair.workspace = true
+solana-loader-v3-interface.workspace = true
+solana-keccak-hasher.workspace = true
+solana-program.workspace = true
+solana-signer.workspace = true
+zkp2p-solana = { path = "../programs/zkp2p_solana", features = ["no-entrypoint"] }
+
+[lints]
+workspace = true
