@@ -47,8 +47,9 @@ ZKP2P_DEPLOYMENT_RECEIPT=deployments/staging-receipt.json \
 ```
 
 `--skip-build` is accepted only when `ZKP2P_EXPECTED_PROGRAM_SHA256` is the exact lowercase SHA-256 of the staged SBF
-artifact. The wrapper checks it before any cluster write and records the same digest in the final public receipt. Use the
-digest from the validated release package; never infer artifact identity from the program address or topology alone.
+artifact. The wrapper copies it into a private deployment snapshot, checks and deploys that immutable path, rechecks it
+before receipt publication, and records the same digest in the final public receipt. Use the digest from the validated
+release package; never infer artifact identity from the program address or topology alone.
 
 Solana CLI preflight remains enabled. The script deploys/upgrades the program, initializes the root only when absent, then
 reads and deserializes all eight accounts. It fails unless every authority, mint, fee, witness threshold, component link,

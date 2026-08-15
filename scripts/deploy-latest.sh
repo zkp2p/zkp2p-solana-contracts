@@ -40,7 +40,7 @@ fi
 
 program_id="5TJD8vLWqAy4hEZLnsxuFKCDnuKXkfQQWpdnqNKYoA1x"
 program_keypair="${ZKP2P_PROGRAM_KEYPAIR:-$repo_root/target/deploy/zkp2p_solana-keypair.json}"
-program_binary="$repo_root/target/deploy/zkp2p_solana.so"
+program_build_artifact="$repo_root/target/deploy/zkp2p_solana.so"
 temporary_directory=""
 
 cleanup() {
@@ -54,7 +54,11 @@ trap cleanup EXIT
 if [[ "$skip_build" != "true" ]]; then
   env -u SOLANA_PRIVATE_KEY anchor build --no-idl
 fi
-[[ -f "$program_binary" ]] || { echo "missing SBF artifact: $program_binary" >&2; exit 1; }
+[[ -f "$program_build_artifact" ]] || { echo "missing SBF artifact: $program_build_artifact" >&2; exit 1; }
+temporary_directory="$(mktemp -d)"
+program_binary="$temporary_directory/zkp2p_solana.so"
+cp "$program_build_artifact" "$program_binary"
+chmod 600 "$program_binary"
 program_sha256="$(shasum -a 256 "$program_binary" | awk '{print $1}')"
 if [[ "$skip_build" == "true" ]]; then
   : "${ZKP2P_EXPECTED_PROGRAM_SHA256:?ZKP2P_EXPECTED_PROGRAM_SHA256 is required with --skip-build}"
@@ -77,7 +81,6 @@ else
     echo "SOLANA_PRIVATE_KEY or SOLANA_KEYPAIR_PATH is required" >&2
     exit 1
   }
-  temporary_directory="$(mktemp -d)"
   wallet_keypair="$temporary_directory/deployer.json"
   env -u SOLANA_PRIVATE_KEY cargo build --quiet --manifest-path deployment/Cargo.toml --bin zkp2p-deployer
   deployer_binary="$repo_root/deployment/target/debug/zkp2p-deployer"
@@ -210,6 +213,10 @@ with open(path, "w", encoding="utf-8") as receipt_file:
     json.dump(receipt, receipt_file, indent=2)
     receipt_file.write("\n")
 PY
+[[ "$(shasum -a 256 "$program_binary" | awk '{print $1}')" == "$program_sha256" ]] || {
+  echo "private SBF deployment snapshot changed during deployment" >&2
+  exit 1
+}
 
 if [[ "$is_upgrade" == "true" ]]; then
   post_deployment_configuration_fingerprint="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["configuration_fingerprint"])' "$post_deployment_receipt")"
