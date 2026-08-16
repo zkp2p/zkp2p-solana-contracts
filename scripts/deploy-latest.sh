@@ -189,7 +189,7 @@ else
   exit 1
 fi
 
-deploy_buffer_arguments=()
+deploy_buffer_keypair=""
 if [[ -n "${ZKP2P_SOLANA_DEPLOY_BUFFER_KEYPAIR:-}" ]]; then
   : "${ZKP2P_EXPECTED_DEPLOY_BUFFER:?ZKP2P_EXPECTED_DEPLOY_BUFFER is required with ZKP2P_SOLANA_DEPLOY_BUFFER_KEYPAIR}"
   [[ -f "$ZKP2P_SOLANA_DEPLOY_BUFFER_KEYPAIR" ]] || {
@@ -202,7 +202,7 @@ if [[ -n "${ZKP2P_SOLANA_DEPLOY_BUFFER_KEYPAIR:-}" ]]; then
     echo "deployment buffer keypair does not match ZKP2P_EXPECTED_DEPLOY_BUFFER" >&2
     exit 1
   }
-  deploy_buffer_arguments=(--buffer "$ZKP2P_SOLANA_DEPLOY_BUFFER_KEYPAIR")
+  deploy_buffer_keypair="$ZKP2P_SOLANA_DEPLOY_BUFFER_KEYPAIR"
   echo "deploy_buffer=$actual_deploy_buffer transport=$deploy_transport"
 else
   echo "deploy_buffer=ephemeral transport=$deploy_transport"
@@ -215,14 +215,20 @@ if [[ "$mode" == "dry-run" ]]; then
   exit 0
 fi
 
+deploy_program_arguments=(
+  --url "$SOLANA_RPC_URL"
+  --keypair "$wallet_keypair"
+  --fee-payer "$wallet_keypair"
+  --upgrade-authority "$wallet_keypair"
+  --program-id "$program_id_argument"
+  "$deploy_transport_flag"
+)
+if [[ -n "$deploy_buffer_keypair" ]]; then
+  deploy_program_arguments+=(--buffer "$deploy_buffer_keypair")
+fi
+
 solana program deploy \
-  --url "$SOLANA_RPC_URL" \
-  --keypair "$wallet_keypair" \
-  --fee-payer "$wallet_keypair" \
-  --upgrade-authority "$wallet_keypair" \
-  --program-id "$program_id_argument" \
-  "${deploy_buffer_arguments[@]}" \
-  "$deploy_transport_flag" \
+  "${deploy_program_arguments[@]}" \
   "$program_binary"
 
 if [[ -z "$temporary_directory" ]]; then
