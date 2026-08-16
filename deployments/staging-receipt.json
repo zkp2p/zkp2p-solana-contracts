@@ -1,0 +1,33 @@
+{
+  "program": "5TJD8vLWqAy4hEZLnsxuFKCDnuKXkfQQWpdnqNKYoA1x",
+  "cluster": "devnet",
+  "genesis_hash": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+  "programdata": "5Ef1YUxhSXKMV1XtDEXVDqCMWrrtsJhgFN751716LEzj",
+  "programdata_slot": 484458202,
+  "upgrade_authority": "FHFQhJAwh1zcUHaUrmCxz2B4DNv6udWM2Lks9Uef2oyK",
+  "authority": "FHFQhJAwh1zcUHaUrmCxz2B4DNv6udWM2Lks9Uef2oyK",
+  "protocol_authority": "FHFQhJAwh1zcUHaUrmCxz2B4DNv6udWM2Lks9Uef2oyK",
+  "domain_chain_id": "a9d78a6ea1a835881ec0723ef89c27b7f16cd1b97feb643b040b32ee8d7cc49d",
+  "domain_seed_slot": 484458246,
+  "domain_seed": "09942927af3ff6d6d96dda8a659214c152e559eb1ca1cde73a3d3ccf6cf98fcc",
+  "stake_mint": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+  "protocol_fee_recipient": "FHFQhJAwh1zcUHaUrmCxz2B4DNv6udWM2Lks9Uef2oyK",
+  "protocol_fee": "10000000000000000",
+  "required_signatures": 1,
+  "witness_count": 2,
+  "configuration_fingerprint": "98zStFHXmfJpkwDSPzCGJdTsBNkuZ23wGETG6sSaaNhP",
+  "initialization_signature": "4i37142qHYQtktWTbbGA3ZJ6XP8F3UKca2aLQMCNYVg8J64a229qpuA9docijaw5KoT8aYWQmEi75cHjkKV5sZXg",
+  "topology": {
+    "program": "5TJD8vLWqAy4hEZLnsxuFKCDnuKXkfQQWpdnqNKYoA1x",
+    "protocol_address": "CGhh1U4AHaFEs1eNtNMAyxbCpCZ7p6gyeBLY8Uy97JGh",
+    "escrow_config_address": "3r5hYNZfK7wc4uQXssJbDpX9d2eb95NiNVD9XNobjkXA",
+    "verifier_config_address": "5NQFyEGEn4uPw7aLuoSQA6moEsPhMLur9hWRmm3GT8t9",
+    "orchestrator_config_address": "H5dHgLSLKXDzAzd5SpzL2AMMfvbDqxd98q9pape1k3oj",
+    "stake_vault_config_address": "HDcUKKscmACHvK4bKPvJsDF2g95fAtixBjU4CnstGF7Q",
+    "rate_manager_config_address": "5cPgU2aMy5WNZ2m49PbJJJxtkuVAr8XTkkbikFhgndTH",
+    "whitelist_config_address": "88KzK7zv1CwrFYyX8NA7TdigzXDHCKrPUZc1kgDGG2xC",
+    "dispute_config_address": "5j7PfgxMhfH5kbYYaJjH3TvPgt7TNtmLQ1LmeMr3vFqM"
+  },
+  "status": "verified",
+  "program_sha256": "50df26c405c83c2fbbfd82a3ce9e8858b3c277444ecc632e005cffbf54e4fc85"
+}
