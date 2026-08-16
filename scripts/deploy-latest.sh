@@ -21,6 +21,18 @@ while (($# > 0)); do
   shift
 done
 
+deploy_transport="${ZKP2P_SOLANA_DEPLOY_TRANSPORT:-rpc}"
+case "$deploy_transport" in
+  rpc) deploy_transport_flag="--use-rpc" ;;
+  quic) deploy_transport_flag="--use-quic" ;;
+  tpu-client) deploy_transport_flag="--use-tpu-client" ;;
+  udp) deploy_transport_flag="--use-udp" ;;
+  *)
+    echo "ZKP2P_SOLANA_DEPLOY_TRANSPORT must be one of: rpc, quic, tpu-client, udp" >&2
+    exit 2
+    ;;
+esac
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 # shellcheck source=../.github/scripts/finalize-deployment-receipt.sh
@@ -177,6 +189,25 @@ else
   exit 1
 fi
 
+deploy_buffer_arguments=()
+if [[ -n "${ZKP2P_SOLANA_DEPLOY_BUFFER_KEYPAIR:-}" ]]; then
+  : "${ZKP2P_EXPECTED_DEPLOY_BUFFER:?ZKP2P_EXPECTED_DEPLOY_BUFFER is required with ZKP2P_SOLANA_DEPLOY_BUFFER_KEYPAIR}"
+  [[ -f "$ZKP2P_SOLANA_DEPLOY_BUFFER_KEYPAIR" ]] || {
+    echo "ZKP2P_SOLANA_DEPLOY_BUFFER_KEYPAIR does not exist" >&2
+    exit 1
+  }
+  chmod 600 "$ZKP2P_SOLANA_DEPLOY_BUFFER_KEYPAIR"
+  actual_deploy_buffer="$(solana-keygen pubkey "$ZKP2P_SOLANA_DEPLOY_BUFFER_KEYPAIR")"
+  [[ "$actual_deploy_buffer" == "$ZKP2P_EXPECTED_DEPLOY_BUFFER" ]] || {
+    echo "deployment buffer keypair does not match ZKP2P_EXPECTED_DEPLOY_BUFFER" >&2
+    exit 1
+  }
+  deploy_buffer_arguments=(--buffer "$ZKP2P_SOLANA_DEPLOY_BUFFER_KEYPAIR")
+  echo "deploy_buffer=$actual_deploy_buffer transport=$deploy_transport"
+else
+  echo "deploy_buffer=ephemeral transport=$deploy_transport"
+fi
+
 if [[ "$mode" == "dry-run" ]]; then
   solana balance --url "$SOLANA_RPC_URL" --keypair "$wallet_keypair"
   echo "program_state=$program_state"
@@ -190,7 +221,8 @@ solana program deploy \
   --fee-payer "$wallet_keypair" \
   --upgrade-authority "$wallet_keypair" \
   --program-id "$program_id_argument" \
-  --use-rpc \
+  "${deploy_buffer_arguments[@]}" \
+  "$deploy_transport_flag" \
   "$program_binary"
 
 if [[ -z "$temporary_directory" ]]; then

@@ -55,6 +55,14 @@ Solana CLI preflight remains enabled. The script deploys/upgrades the program, i
 reads and deserializes all eight accounts. It fails unless every authority, mint, fee, witness threshold, component link,
 lifecycle policy, delay, and initial pause state is exact. The optional receipt contains only public addresses,
 configuration, and transaction signatures.
+
+The default program-upload transport is RPC. When the configured RPC is healthy for reads but rate-limits bulk
+`sendTransaction` calls, set `ZKP2P_SOLANA_DEPLOY_TRANSPORT` to `quic`, `tpu-client`, or `udp` to use the corresponding
+Solana CLI transport. A failed initial upload may leave a funded buffer and print a recovery phrase. Recover that keypair
+only into a protected ignored file, then set `ZKP2P_SOLANA_DEPLOY_BUFFER_KEYPAIR` and the independently verified public
+`ZKP2P_EXPECTED_DEPLOY_BUFFER` address to resume the exact buffer. The wrapper refuses a missing keypair, an unexpected
+buffer address, or an unknown transport before invoking the deploy command. Never place the recovery phrase or recovered
+keypair in source control, logs, deployment receipts, or shell history.
 The receipt destination must be a new path whose parent directory already exists and is writable. The wrapper checks that
 before the first cluster write, then publishes the verified receipt with an exclusive atomic link only after every
 post-deploy gate succeeds. Use a unique timestamped or release-specific receipt path for every later upgrade; never reuse
