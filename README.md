@@ -56,6 +56,13 @@ instruction-to-suite matrix.
 documentation. Pull requests build and verify that package; the manual publishing workflow accepts only the exact version
 on canonical `main`, attests the validated archive, and publishes it as a GitHub release.
 
+## Deployment
+
+The latest-only deployer performs a write-free target/genesis/mint/loader preflight, deploys one upgradeable program,
+initializes the eight canonical component PDAs, and then reads every account back into a public verification receipt. It
+supports safe resume after an executable-but-uninitialized first deployment and requires a protected rollback artifact
+before live upgrades. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the exact staging and local-validator runbooks.
+
 ## Deliberate SVM differences
 
 - The EVM contract graph is one program with separate config PDAs. Internal component authorization is therefore PDA-based,
