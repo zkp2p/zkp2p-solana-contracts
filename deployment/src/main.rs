@@ -86,7 +86,7 @@ struct ProtocolArgs {
     #[arg(long, env = "ZKP2P_PROTOCOL_FEE", default_value = "10000000000000000")]
     protocol_fee: u128,
     /// Default intent lifetime in seconds.
-    #[arg(long, env = "ZKP2P_INTENT_EXPIRATION", default_value_t = 1_800)]
+    #[arg(long, env = "ZKP2P_INTENT_EXPIRATION", default_value_t = 3_600)]
     intent_expiration_period: i64,
     /// Maximum live intents on one deposit.
     #[arg(long, env = "ZKP2P_MAX_INTENTS", default_value_t = 20)]
