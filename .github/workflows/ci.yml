@@ -21,6 +21,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      - name: Patch hosted action runtime
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: zkp2p/.github/actions/patch-node24@b5f5952aa1f7ada0a6dedfdbd320dce83d69635b
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -69,6 +72,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      - name: Patch hosted action runtime
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        uses: zkp2p/.github/actions/patch-node24@b5f5952aa1f7ada0a6dedfdbd320dce83d69635b
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
