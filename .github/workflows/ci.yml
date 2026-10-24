@@ -19,7 +19,7 @@ jobs:
   host:
     name: Host tests, lint, and coverage
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - name: Patch hosted action runtime
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
@@ -70,7 +70,7 @@ jobs:
   sbf:
     name: SBF parity and release package
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - name: Patch hosted action runtime
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
