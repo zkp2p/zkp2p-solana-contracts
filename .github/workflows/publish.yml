@@ -25,7 +25,7 @@ jobs:
     steps:
       - name: Patch hosted action runtime
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
-        uses: zkp2p/.github/actions/patch-node24@96cd20d1545013b0e7e89b56ce80ab2c4a42df9d
+        uses: zkp2p/.github/actions/patch-node24@f9560a725dbcda32544968f34d52382d3af316e5
       - name: Checkout canonical release source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -94,7 +94,7 @@ jobs:
     steps:
       - name: Patch hosted action runtime
         if: runner.environment == 'github-hosted' && runner.os == 'Linux'
-        uses: zkp2p/.github/actions/patch-node24@96cd20d1545013b0e7e89b56ce80ab2c4a42df9d
+        uses: zkp2p/.github/actions/patch-node24@f9560a725dbcda32544968f34d52382d3af316e5
       - name: Checkout release verification code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
